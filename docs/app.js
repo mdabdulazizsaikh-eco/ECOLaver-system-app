@@ -80,6 +80,8 @@
   /* ---------- native Android app support (Capacitor) ---------- */
   const NATIVE = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());
   const plug = n => (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins[n]) || null;
+  const GH_REPO = 'mdabdulazizsaikh-eco/ECOLaver-system-app';
+  const BUILD = window.APP_BUILD || 0;
   const openLink = url => { if (NATIVE) window.location.href = url; else window.open(url, '_blank'); };
   async function shareNative(o) {
     const sh = plug('Share');
@@ -92,6 +94,30 @@
     const w = await fs.writeFile(isText ? { path: name, data, directory: 'CACHE', encoding: 'utf8' } : { path: name, data, directory: 'CACHE' });
     await shareNative({ title, files: [w.uri], dialogTitle: title });
   }
+  async function checkUpdate(manual) {
+    if (!NATIVE) return;
+    try {
+      const r = await fetch('https://api.github.com/repos/' + GH_REPO + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } });
+      if (r.status === 404) throw new Error('Cannot read updates. Make the GitHub repo public.');
+      if (!r.ok) throw new Error('Update check failed (' + r.status + ')');
+      const j = await r.json();
+      const n = parseInt(String(j.tag_name).replace(/\D/g, ''), 10) || 0;
+      const a = (j.assets || []).find(x => /\.apk$/i.test(x.name));
+      S.upd = (n > BUILD && a) ? { build: n, url: a.browser_download_url } : null;
+      if (manual) toast(S.upd ? 'New update found' : 'You have the latest version');
+      if (cur.n === 'home' || cur.n === 'settings') draw(true);
+    } catch (e) { if (manual) toast(/fetch/i.test(e.message) ? 'No internet connection' : e.message, 1); }
+  }
+  async function installUpdate() {
+    const u = S.upd; if (!u) return;
+    try {
+      const fs = plug('Filesystem'), fo = plug('FileOpener');
+      if (!fs || !fo) throw new Error('installer missing');
+      toast('Downloading update...');
+      const d = await fs.downloadFile({ url: u.url, path: 'ECOLaver-update.apk', directory: 'CACHE' });
+      await fo.open({ filePath: d.path, contentType: 'application/vnd.android.package-archive' });
+    } catch (e) { toast('Opening the download...'); openLink(u.url); }
+  }
   function billCanvas(inv) {
     const s = D.state.settings, W = 720, P = 36, rows = inv.lines.length;
     const extra = (inv.discount ? 1 : 0) + (inv.advanceUsed ? 1 : 0) + (Math.abs(inv.billBalance) > 0.005 ? 1 : 0);
@@ -101,8 +127,8 @@
     const fit = (t, mw) => { t = String(t); if (x.measureText(t).width <= mw) return t; while (t.length > 1 && x.measureText(t + '…').width > mw) t = t.slice(0, -1); return t + '…'; };
     const draw = img => {
       x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
-      const g = x.createLinearGradient(0, 0, W, 0); g.addColorStop(0, '#093d2b'); g.addColorStop(1, '#1f8a5b');
-      x.fillStyle = g; x.fillRect(0, 0, W, 150);
+      const g = x.createLinearGradient(0, 0, W, 0); g.addColorStop(0, '#050d09'); g.addColorStop(1, '#12683f');
+      x.fillStyle = g; x.fillRect(0, 0, W, 150); x.fillStyle = '#d4a437'; x.fillRect(0, 150, W, 6);
       x.save(); x.beginPath(); x.arc(P + 50, 75, 50, 0, 7); x.closePath(); x.fillStyle = '#fff'; x.fill(); x.clip();
       if (img) x.drawImage(img, P, 25, 100, 100); else { x.fillStyle = '#0e5a40'; x.font = 'bold 34px ' + F; x.textAlign = 'center'; x.fillText((s.name || 'E').slice(0, 2).toUpperCase(), P + 50, 88); }
       x.restore();
@@ -366,6 +392,7 @@
       '<div class="stat green" data-act="goto" data-n="reports"><small>Profit this month</small><b>' + money(t.monthProfit) + '</b></div></div>' +
       '<div class="grid2"><button class="btn gold" data-act="goto" data-n="buy">' + ic('cart') + 'Buy stock</button><button class="btn" data-act="goto" data-n="make">' + ic('pack') + 'Make products</button>' +
       '<button class="btn" data-act="goto" data-n="orders">' + ic('clip') + 'Orders' + (t.pendingOrders ? ' (' + t.pendingOrders + ')' : '') + '</button><button class="btn" data-act="goto" data-n="invoices">' + ic('receipt') + 'All bills</button></div>' +
+      (S.upd ? '<div class="note green"><b>Update available</b><br>A new version of the app is ready.<br><button class="btn sm primary" style="margin-top:8px" data-act="updNow">Update now</button></div>' : '') +
       (needBk ? '<div class="note" data-act="goto" data-n="settings">Your data lives only on this phone. Tap here to download a backup.</div>' : '') +
       (t.low.length ? '<div class="card"><h3>Low stock <small>' + t.low.length + ' items</small></h3>' + t.low.slice(0, 5).map(i => '<div class="row" data-act="goto" data-n="item" data-id="' + i.id + '"><div class="ico red">' + ic('alert') + '</div><div class="main"><div class="t">' + esc(i.name) + '</div></div><div class="end"><b class="neg">' + qf(i.stock) + ' ' + i.unit + '</b></div></div>').join('') + '</div>' : '') +
       '<div class="card"><h3>Last 7 days <small>sales</small></h3><div class="bars">' + days.map((d, i) => '<div class="b"><em>' + (d.total ? Math.round(d.total) : '') + '</em><i style="height:' + Math.max(d.total / mx * 100, 3) + '%;animation-delay:' + i * 0.06 + 's"></i><span>' + d.label + '</span></div>').join('') + '</div></div></div>';
@@ -620,6 +647,7 @@
       [['s-name', 'Company name', s.name], ['s-tag', 'Tagline', s.tagline], ['s-addr', 'Address', s.address], ['s-phone', 'Phone', s.phone], ['s-email', 'Email (optional)', s.email], ['s-upi', 'UPI ID (optional, printed on bills with a balance)', s.upi], ['s-prefix', 'Bill number starts with', s.invoicePrefix], ['s-foot', 'Message at the bottom of the bill', s.footer]]
         .map(a => '<div class="field"><label>' + a[1] + '</label><input id="' + a[0] + '" value="' + esc(a[2]) + '"></div>').join('') +
       '<button class="btn primary block" data-act="setSave">Save</button></div>' +
+      (NATIVE ? '<div class="card"><h3>App update <small>build ' + BUILD + '</small></h3>' + (S.upd ? '<div class="note green">A new version is available (build ' + S.upd.build + ').</div><button class="btn primary block" data-act="updNow">Update now</button>' : '<p class="mut" style="margin-bottom:12px;font-size:14px">Your app is up to date.</p><button class="btn block" data-act="updCheck">Check for update</button>') + '</div>' : '') +
       '<div class="card"><h3>Backup</h3><p class="mut" style="margin-bottom:12px;font-size:14px">All data is stored on this phone only. Download a backup often and keep it safe, for example in Google Drive.' + (s.lastBackup ? ' Last backup: ' + fmtDate(s.lastBackup.slice(0, 10)) + '.' : ' You have not made a backup yet.') + '</p>' +
       '<div class="btns"><button class="btn gold" data-act="backup">Download backup</button><button class="btn" data-act="restorePick">Restore</button></div><input type="file" id="restoreFile" accept=".json,application/json" class="hidden"></div>' +
       '<div class="card"><h3>Danger zone</h3><button class="btn danger block" data-act="resetAll">Delete all data</button></div></div>';
@@ -820,6 +848,8 @@
       openLink(waLink(p.phone, 'Hello ' + p.name + ', a gentle reminder from ' + s.name + ': your balance due is ' + money(p.balance) + '.' + (s.upi ? ' You can pay by UPI: ' + s.upi + '.' : '') + ' Thank you!'));
     },
     /* reports & settings */
+    updNow() { installUpdate(); },
+    updCheck() { checkUpdate(true); },
     fltRep(el) { S.flt.rep = el.dataset.v; draw(true); },
     logoPick() { $('#logoFile').click(); },
     logoDel() { D.saveSettings({ logo: '' }); draw(true); },
@@ -923,4 +953,5 @@
   if (!NATIVE && 'serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { }));
   history.replaceState({}, '');
   draw();
+  if (NATIVE) setTimeout(() => checkUpdate(false), 1500);
 })();

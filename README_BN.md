@@ -25,3 +25,9 @@ cd ~/ecolaver-app/docs
 python -m http.server 8080
 ```
 Chrome-এ localhost:8080
+
+## অ্যাপের ভেতর থেকে আপডেট (গুরুত্বপূর্ণ)
+- GitHub repo অবশ্যই **Public** হতে হবে (repo > Settings > নিচে Danger zone > Change visibility)।
+- কোড বদলে `git add . && git commit -m "update" && git push` করলে GitHub নতুন APK বানায়।
+- অ্যাপ খুললে নিজে চেক করে। নতুন ভার্সন থাকলে Home-এ "Update available" আসবে, "Update now" চাপলেই ডাউনলোড হয়ে ইনস্টল স্ক্রিন খুলবে।
+- Settings > App update থেকেও নিজে চেক করা যায়।
