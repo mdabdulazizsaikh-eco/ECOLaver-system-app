@@ -1,0 +1,7 @@
+{
+  "appId": "com.ecolaver.business",
+  "appName": "ECOLaver",
+  "webDir": "docs",
+  "server": { "androidScheme": "https" },
+  "android": { "backgroundColor": "#0e5a40" }
+}
