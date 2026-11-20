@@ -1,6 +1,6 @@
 /* Works offline: always tries the network first (so updates show up), falls back to the saved copy. */
 const CACHE = 'ecolaver-v1';
-const FILES = ['./', 'index.html', 'style.css', 'store.js', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
+const FILES = ['./', 'index.html', 'style.css', 'store.js', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'logo.png', 'logo.js', 'version.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

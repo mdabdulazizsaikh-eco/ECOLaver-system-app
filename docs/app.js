@@ -127,10 +127,10 @@
     const fit = (t, mw) => { t = String(t); if (x.measureText(t).width <= mw) return t; while (t.length > 1 && x.measureText(t + '…').width > mw) t = t.slice(0, -1); return t + '…'; };
     const draw = img => {
       x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
-      const g = x.createLinearGradient(0, 0, W, 0); g.addColorStop(0, '#050d09'); g.addColorStop(1, '#12683f');
-      x.fillStyle = g; x.fillRect(0, 0, W, 150); x.fillStyle = '#d4a437'; x.fillRect(0, 150, W, 6);
+      const g = x.createLinearGradient(0, 0, W, 0); g.addColorStop(0, '#011a0d'); g.addColorStop(1, '#0e7a42');
+      x.fillStyle = g; x.fillRect(0, 0, W, 150); x.fillStyle = '#eec32f'; x.fillRect(0, 150, W, 6);
       x.save(); x.beginPath(); x.arc(P + 50, 75, 50, 0, 7); x.closePath(); x.fillStyle = '#fff'; x.fill(); x.clip();
-      if (img) x.drawImage(img, P, 25, 100, 100); else { x.fillStyle = '#0e5a40'; x.font = 'bold 34px ' + F; x.textAlign = 'center'; x.fillText((s.name || 'E').slice(0, 2).toUpperCase(), P + 50, 88); }
+      if (img) x.drawImage(img, P, 25, 100, 100); else { x.fillStyle = '#00552c'; x.font = 'bold 34px ' + F; x.textAlign = 'center'; x.fillText((s.name || 'E').slice(0, 2).toUpperCase(), P + 50, 88); }
       x.restore();
       x.textAlign = 'left'; x.fillStyle = '#fff'; x.font = 'bold 34px ' + F; x.fillText(fit(s.name, W - P * 2 - 130), P + 126, 62);
       x.font = '19px ' + F; x.globalAlpha = .9;
@@ -144,7 +144,7 @@
       if (inv.customerPhone) { x.font = '20px ' + F; x.fillStyle = '#555'; x.fillText(inv.customerPhone, W - P, y + 30); }
       y = 270;
       x.fillStyle = '#e4f2ea'; x.fillRect(P, y, W - P * 2, 44);
-      x.fillStyle = '#093d2b'; x.font = 'bold 19px ' + F;
+      x.fillStyle = '#00331a'; x.font = 'bold 19px ' + F;
       x.textAlign = 'left'; x.fillText('Item', P + 10, y + 29);
       x.textAlign = 'right'; x.fillText('Qty', 410, y + 29); x.fillText('Rate', 530, y + 29); x.fillText('Amount', W - P - 10, y + 29);
       y += 44;
@@ -155,10 +155,10 @@
         y += 56;
       });
       y += 20;
-      const row = (a, b, big) => { x.font = (big ? 'bold 28px ' : '22px ') + F; x.fillStyle = big ? '#0e5a40' : '#111'; x.textAlign = 'left'; x.fillText(a, 330, y); x.textAlign = 'right'; x.fillText(b, W - P, y); y += big ? 46 : 38; };
+      const row = (a, b, big) => { x.font = (big ? 'bold 28px ' : '22px ') + F; x.fillStyle = big ? '#00552c' : '#111'; x.textAlign = 'left'; x.fillText(a, 330, y); x.textAlign = 'right'; x.fillText(b, W - P, y); y += big ? 46 : 38; };
       row('Subtotal', money(inv.subtotal));
       if (inv.discount) row('Discount', '-' + money(inv.discount));
-      x.fillStyle = '#0e5a40'; x.fillRect(330, y - 26, W - P - 330, 2); y += 12;
+      x.fillStyle = '#00552c'; x.fillRect(330, y - 26, W - P - 330, 2); y += 12;
       row('Total', money(inv.total), true);
       if (inv.advanceUsed) row('Advance adjusted', money(inv.advanceUsed));
       row('Paid (' + inv.method + ')', money(inv.paid));
@@ -170,12 +170,12 @@
       return c;
     };
     return new Promise(res => {
-      if (!s.logo) return res(draw(null));
-      const im = new Image(); im.onload = () => res(draw(im)); im.onerror = () => res(draw(null)); im.src = s.logo;
+      const im = new Image(); im.onload = () => res(draw(im)); im.onerror = () => res(draw(null)); im.src = logoSrc();
     });
   }
   const empty = (icon, t, s, btn) => '<div class="empty">' + ic(icon) + '<b>' + esc(t) + '</b>' + esc(s || '') + (btn || '') + '</div>';
-  const logoHtml = () => { const s = D.state.settings; return s.logo ? '<img src="' + s.logo + '" alt="">' : esc((s.name || 'E').slice(0, 2).toUpperCase()); };
+  const logoSrc = () => D.state.settings.logo || window.DEFAULT_LOGO || 'logo.png';
+  const logoHtml = () => '<img src="' + logoSrc() + '" alt="">';
   function top(title, sub, o) {
     o = o || {};
     return '<header class="top">' + (o.home ? '<div class="logo">' + logoHtml() + '</div>' : '<button class="back" data-act="back">' + ic('back') + '</button>') +
@@ -349,7 +349,7 @@
   function paper(inv) {
     const s = D.state.settings;
     const cust = inv.customerId ? D.find('customers', inv.customerId) : null;
-    return '<div class="paper"><div class="ph"><div class="lg">' + (s.logo ? '<img src="' + s.logo + '" alt="">' : esc((s.name || 'E').slice(0, 2).toUpperCase())) + '</div><div><h2>' + esc(s.name) + '</h2>' +
+    return '<div class="paper"><div class="ph"><div class="lg">' + logoHtml() + '</div><div><h2>' + esc(s.name) + '</h2>' +
       (s.tagline ? '<p><i>' + esc(s.tagline) + '</i></p>' : '') + (s.address ? '<p>' + esc(s.address) + '</p>' : '') +
       '<p>' + [s.phone ? 'Ph: ' + esc(s.phone) : '', s.email ? esc(s.email) : ''].filter(Boolean).join(' · ') + '</p></div></div>' +
       '<div class="meta"><div><b>Bill ' + esc(inv.no) + '</b>' + (inv.void ? '<span class="stamp">CANCELLED</span>' : '') + '<br>' + fmtDate(inv.date) + '</div><div style="text-align:right"><b>' + esc(inv.customerName) + '</b>' + (inv.customerPhone ? '<br>' + esc(inv.customerPhone) : '') + '</div></div>' +
@@ -643,7 +643,7 @@
   SCREENS.settings = () => {
     const s = D.state.settings;
     return top('Settings', 'Shown on your bills') + '<div class="page"><div class="card"><h3>Business details</h3>' +
-      '<div class="field"><label>Logo</label><div class="row" style="cursor:default;border:0"><div class="ico" style="width:60px;height:60px;border-radius:50%;overflow:hidden">' + logoHtml() + '</div><div class="main"><button class="btn sm" data-act="logoPick">Choose logo</button> ' + (s.logo ? '<button class="btn sm danger" data-act="logoDel">Remove</button>' : '') + '</div></div><input type="file" id="logoFile" accept="image/*" class="hidden"></div>' +
+      '<div class="field"><label>Logo</label><div class="row" style="cursor:default;border:0"><div class="ico" style="width:60px;height:60px;border-radius:50%;overflow:hidden">' + logoHtml() + '</div><div class="main"><button class="btn sm" data-act="logoPick">Choose logo</button> ' + (s.logo ? '<button class="btn sm danger" data-act="logoDel">Use ECOLaver logo</button>' : '') + '</div></div><input type="file" id="logoFile" accept="image/*" class="hidden"></div>' +
       [['s-name', 'Company name', s.name], ['s-tag', 'Tagline', s.tagline], ['s-addr', 'Address', s.address], ['s-phone', 'Phone', s.phone], ['s-email', 'Email (optional)', s.email], ['s-upi', 'UPI ID (optional, printed on bills with a balance)', s.upi], ['s-prefix', 'Bill number starts with', s.invoicePrefix], ['s-foot', 'Message at the bottom of the bill', s.footer]]
         .map(a => '<div class="field"><label>' + a[1] + '</label><input id="' + a[0] + '" value="' + esc(a[2]) + '"></div>').join('') +
       '<button class="btn primary block" data-act="setSave">Save</button></div>' +
