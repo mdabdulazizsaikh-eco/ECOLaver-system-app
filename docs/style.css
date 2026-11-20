@@ -6,7 +6,7 @@
   --r:18px; --sh:0 6px 20px rgba(14,90,64,.08); --sh2:0 12px 30px rgba(14,90,64,.18);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;min-height:100%;overflow-x:hidden;background:var(--bg);color:var(--ink);
+html,body{margin:0;min-height:100%;overflow-x:clip;background:var(--bg);color:var(--ink);
   font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;font-size:16px;overscroll-behavior-y:none}
 body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -63,6 +63,7 @@ h1,h2,h3,p{margin:0}
 .row:last-child{border-bottom:0}
 .row:active{background:var(--g1)}
 .ico{width:42px;height:42px;border-radius:14px;background:var(--g1);color:var(--g8);display:grid;place-items:center;flex:none;font-weight:700}
+.ico img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
 .ico svg{width:22px;height:22px}
 .ico.gold{background:var(--gold-l);color:var(--gold-d)}.ico.red{background:var(--red-l);color:var(--red)}.ico.blue{background:var(--blue-l);color:var(--blue)}
 .row .main{flex:1;min-width:0}
