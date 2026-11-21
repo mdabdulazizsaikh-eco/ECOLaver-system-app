@@ -47,7 +47,7 @@
       v: 2,
       settings: {
         name: 'ECOLaver', tagline: 'Choose nature, live better', address: '', phone: '', email: '',
-        upi: '', logo: '', invoicePrefix: 'EL-', footer: 'Thank you for choosing nature!', lowDefault: 5
+        upi: '', logo: '', invoicePrefix: 'EL-', footer: 'Thank you for choosing nature!', lowDefault: 5, memberPct: 5, cardFee: 599
       },
       items: [], customers: [], vendors: [], purchases: [], batches: [], invoices: [], orders: [], vorders: [], adjustments: [],
       counters: { invoice: 1, purchase: 1, order: 1, vorder: 1 }
@@ -170,6 +170,37 @@
     save();
   }
 
+  /* ---------- Family Membership Card ---------- */
+  const digits = s => { let d = String(s || '').replace(/\D/g, ''); if (d.length > 10 && d.startsWith('91')) d = d.slice(2); return d.slice(-10); };
+  function issueCard(customerId, fee, method) {
+    const c = find('customers', customerId);
+    if (!c) throw new Error('Not found');
+    if (c.member) throw new Error('Already a member');
+    const no = digits(c.phone);
+    if (no.length < 10) throw new Error('Add a 10 digit mobile number to this customer first');
+    if (state.customers.some(x => x.member && x.member.no === no)) throw new Error('This mobile number already has a card');
+    fee = Math.max(+fee || 0, 0);
+    c.member = { no, since: today(), fee: r2(fee) };
+    if (fee > 0) { ledger(c, 'card', 'Family card fee', fee, 'card', '', today()); ledger(c, 'payment', 'Family card fee paid', -fee, 'card', method || 'Cash', today()); }
+    save();
+    return c;
+  }
+  function revokeCard(customerId) {
+    const c = find('customers', customerId);
+    if (!c) return;
+    c.member = null;
+    c.ledger = c.ledger.filter(e => e.ref !== 'card');
+    rebuildLedger(c);
+    save();
+  }
+  /* member discount % for one item: its raw material's own % if set, otherwise the shop default */
+  function memberPct(itemId) {
+    const it = item(itemId);
+    if (!it) return state.settings.memberPct;
+    const raw = it.kind === 'raw' ? it : item(it.rawId);
+    return raw && raw.memberPct != null ? raw.memberPct : state.settings.memberPct;
+  }
+
   /* ---------- items ---------- */
   const sizeLabel = (size, unit) => qtyFmt(size) + ' ' + unit;
   const packName = (raw, label, pname) => raw.name + ' ' + label + ' ' + (clean(pname) || 'Packet');
@@ -191,6 +222,7 @@
     }
     it.price = +d.price || 0;
     it.low = +d.low || 0;
+    if ('memberPct' in d) it.memberPct = (d.memberPct === '' || d.memberPct == null) ? null : Math.min(Math.max(+d.memberPct || 0, 0), 100);
     save();
     return it;
   }
@@ -488,7 +520,7 @@
       customerName: cust ? cust.name : ((d.walkName || '').trim() || 'Walk-in customer'),
       customerPhone: cust ? cust.phone : '', lines, subtotal, discount: r2(discount), total, paid: r2(paid),
       method: d.method || 'Cash', advanceUsed, billBalance: r2(total - paid - advanceUsed), cogs, profit: r2(total - cogs),
-      note: d.note || '', orderId: order ? order.id : '', orderNo: order ? order.no : '', void: false
+      memberNo: d.memberNo || '', memberDiscount: r2(Math.min(Math.max(+d.memberDiscount || 0, 0), discount)), note: d.note || '', orderId: order ? order.id : '', orderNo: order ? order.no : '', void: false
     };
     lines.forEach(l => { const it = item(l.itemId); it.stock = r3(it.stock - l.qtyBase); });
     state.invoices.push(inv);
@@ -679,6 +711,8 @@
     return {
       bills: inv.length, sales: r2(sum(inv.map(i => i.total))), discount: r2(sum(inv.map(i => i.discount))),
       cogs: r2(sum(inv.map(i => i.cogs))), profit: r2(sum(inv.map(i => i.profit))),
+      cards: state.customers.filter(c => c.member && c.member.since >= from && c.member.since <= to).length,
+      cardIncome: r2(sum(state.customers.filter(c => c.member && c.member.since >= from && c.member.since <= to).map(c => c.member.fee))),
       purchases: r2(sum(pur.map(p => p.total))), cashIn: r2(cashIn), cashOut: r2(cashOut),
       top: Object.values(byItem).map(o => ({ name: o.name, amount: r2(o.amount), profit: r2(o.profit) })).sort((a, b) => b.amount - a.amount).slice(0, 8)
     };
@@ -702,7 +736,7 @@
   function saveSettings(s) { Object.assign(state.settings, s); save(); }
 
   const DB = {
-    UNITS, MARKET, load, save, uid, today, r2, r3, r4, sum, conv, compat, money, qtyFmt, localDate, nk, clean,
+    digits, issueCard, revokeCard, memberPct, UNITS, MARKET, load, save, uid, today, r2, r3, r4, sum, conv, compat, money, qtyFmt, localDate, nk, clean,
     get state() { return state; }, get lastError() { return lastError; }, get notice() { return notice; },
     item, find, rawItems, findRaw, places, addPerson, updatePerson, removePerson, payment, deleteLedgerEntry,
     updateItem, removeItem, stockAdjust, purchase, deletePurchase, packGroups, rawsWithPacks, packetCost, packPlan, pack, undoBatch, suggest,

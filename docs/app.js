@@ -120,7 +120,7 @@
   }
   function billCanvas(inv) {
     const s = D.state.settings, W = 720, P = 36, rows = inv.lines.length;
-    const extra = (inv.discount ? 1 : 0) + (inv.advanceUsed ? 1 : 0) + (Math.abs(inv.billBalance) > 0.005 ? 1 : 0);
+    const extra = (inv.discount ? 1 : 0) + (inv.memberDiscount && inv.discount - inv.memberDiscount > 0.005 ? 1 : 0) + (inv.advanceUsed ? 1 : 0) + (Math.abs(inv.billBalance) > 0.005 ? 1 : 0);
     const H = 330 + rows * 56 + 170 + extra * 40 + 90;
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d'), F = 'system-ui, -apple-system, Roboto, Arial, sans-serif';
@@ -157,7 +157,8 @@
       y += 20;
       const row = (a, b, big) => { x.font = (big ? 'bold 28px ' : '22px ') + F; x.fillStyle = big ? '#00552c' : '#111'; x.textAlign = 'left'; x.fillText(a, 330, y); x.textAlign = 'right'; x.fillText(b, W - P, y); y += big ? 46 : 38; };
       row('Subtotal', money(inv.subtotal));
-      if (inv.discount) row('Discount', '-' + money(inv.discount));
+      if (inv.memberDiscount) row('Family member discount', '-' + money(inv.memberDiscount));
+      if (inv.discount - (inv.memberDiscount || 0) > 0.005) row('Discount', '-' + money(D.r2(inv.discount - (inv.memberDiscount || 0))));
       x.fillStyle = '#00552c'; x.fillRect(330, y - 26, W - P - 330, 2); y += 12;
       row('Total', money(inv.total), true);
       if (inv.advanceUsed) row('Pre-order advance', money(inv.advanceUsed));
@@ -176,6 +177,34 @@
   const empty = (icon, t, s, btn) => '<div class="empty">' + ic(icon) + '<b>' + esc(t) + '</b>' + esc(s || '') + (btn || '') + '</div>';
   const logoSrc = () => D.state.settings.logo || window.DEFAULT_LOGO || 'logo.png';
   const logoHtml = () => '<img src="' + logoSrc() + '" alt="">';
+  const maskNo = n => { n = String(n || ''); return n.length > 3 ? 'X'.repeat(n.length - 3) + n.slice(-3) : n; };
+  function qrSvg(text, px) {
+    const m = QR.make(text), q = 2, n = m.length;
+    let r = '';
+    m.forEach((row, y) => row.forEach((v, x) => { if (v) r += 'M' + (x + q) + ' ' + (y + q) + 'h1v1h-1z'; }));
+    return '<svg viewBox="0 0 ' + (n + q * 2) + ' ' + (n + q * 2) + '" width="' + px + '" height="' + px + '" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="' + r + '" fill="#111"/></svg>';
+  }
+  function cardCanvas(c) {
+    const W = 1011, H = 636, x0 = document.createElement('canvas'); x0.width = W; x0.height = H;
+    const x = x0.getContext('2d'), F = 'system-ui, -apple-system, Roboto, Arial, sans-serif', s = D.state.settings;
+    const draw = img => {
+      const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#011a0d'); g.addColorStop(.6, '#00552c'); g.addColorStop(1, '#0e7a42');
+      x.fillStyle = g; x.beginPath(); x.roundRect(0, 0, W, H, 44); x.fill();
+      x.strokeStyle = '#eec32f'; x.lineWidth = 6; x.beginPath(); x.roundRect(14, 14, W - 28, H - 28, 34); x.stroke();
+      x.save(); x.beginPath(); x.arc(110, 110, 58, 0, 7); x.closePath(); x.fillStyle = '#fff'; x.fill(); x.clip();
+      if (img) x.drawImage(img, 52, 52, 116, 116); x.restore();
+      x.fillStyle = '#fff'; x.textAlign = 'left'; x.font = 'bold 50px ' + F; x.fillText(s.name || 'ECOLaver', 190, 104);
+      x.fillStyle = '#eec32f'; x.font = '30px ' + F; x.fillText('Family Membership Card', 190, 148);
+      x.fillStyle = '#fff'; x.font = 'bold 66px ' + F; x.fillText(maskNo(c.member.no), 60, 370);
+      x.font = 'bold 40px ' + F; x.fillText(String(c.name).toUpperCase().slice(0, 24), 60, 470);
+      x.fillStyle = '#d6e8dc'; x.font = '26px ' + F; x.fillText('Member since ' + fmtDate(c.member.since), 60, 520);
+      const m = QR.make(c.member.no), n = m.length, q = 2, cell = 7, bx = W - 60 - (n + q * 2) * cell, by = H - 60 - (n + q * 2) * cell;
+      x.fillStyle = '#fff'; x.beginPath(); x.roundRect(bx, by, (n + q * 2) * cell, (n + q * 2) * cell, 12); x.fill();
+      x.fillStyle = '#111'; m.forEach((row, yy) => row.forEach((v, xx) => { if (v) x.fillRect(bx + (xx + q) * cell, by + (yy + q) * cell, cell, cell); }));
+      return x0;
+    };
+    return new Promise(res => { const im = new Image(); im.onload = () => res(draw(im)); im.onerror = () => res(draw(null)); im.src = logoSrc(); });
+  }
   function top(title, sub, o) {
     o = o || {};
     return '<header class="top">' + (o.home ? '<div class="logo">' + logoHtml() + '</div>' : '<button class="back" data-act="back">' + ic('back') + '</button>') +
@@ -267,6 +296,7 @@
     openSheet('<h2>Edit item</h2>' +
       (it.kind === 'raw' ? '<div class="field"><label>Name</label><input id="f-name" value="' + esc(it.name) + '"></div>' : '<p class="mut" style="margin-bottom:12px">' + esc(it.name) + '</p>') +
       (it.kind === 'pack' ? '' : '<div class="field"><label>Selling price per ' + it.unit + ' (₹)</label><input id="f-price" type="number" inputmode="decimal" placeholder="0" value="' + (it.price || '') + '"><div class="hint">' + (it.kind === 'raw' ? 'Only fill this if you also sell the raw material.' : 'This price is filled automatically on every bill.') + '</div></div>') +
+      (it.kind === 'raw' ? '<div class="field"><label>Family member discount % for this product group</label><input id="f-mp" type="number" inputmode="decimal" placeholder="Default ' + D.state.settings.memberPct + '" value="' + (it.memberPct == null ? '' : it.memberPct) + '"><div class="hint">Applies to ' + esc(it.name) + ' and everything packed from it. Leave empty to use the shop default.</div></div>' : '') +
       '<div class="field"><label>Low stock alert at (' + it.unit + ')</label><input id="f-low" type="number" inputmode="decimal" placeholder="0" value="' + (it.low || '') + '"></div>' +
       '<button class="btn primary block" data-act="itemSave" data-id="' + id + '">Save</button>');
   }
@@ -323,19 +353,21 @@
   function calcBill(b) {
     const ls = b.lines.filter(l => l.itemId && num(l.qty) > 0);
     const sub = D.r2(D.sum(ls.map(l => num(l.qty) * num(l.rate))));
-    const disc = Math.min(num(b.discount), sub);
+    const cust = b.customerId ? D.find('customers', b.customerId) : null;
+    const mem = cust && cust.member ? cust.member : null;
+    const memberDisc = mem ? D.r2(D.sum(ls.map(l => num(l.qty) * num(l.rate) * D.memberPct(l.itemId) / 100))) : 0;
+    const disc = Math.min(D.r2(memberDisc + num(b.discount)), sub);
     const total = D.r2(sub - disc);
     const ord = b.orderId ? D.find('orders', b.orderId) : null;
     const adv = ord ? ord.advance : 0;
     const auto = Math.max(D.r2(total - adv), 0);
-    const cust = b.customerId ? D.find('customers', b.customerId) : null;
     const paid = !cust ? total : (b.paid === null ? auto : num(b.paid));
-    return { sub, disc, total, adv, auto, paid, cust, bal: D.r2(total - adv - paid), newBal: cust ? D.r2(cust.balance + total - paid) : 0, n: ls.length };
+    return { sub, disc, memberDisc, mem, total, adv, auto, paid, cust, bal: D.r2(total - adv - paid), newBal: cust ? D.r2(cust.balance + total - paid) : 0, n: ls.length };
   }
   function billTotals() {
     const c = calcBill(S.bill);
     return '<div class="r"><span>Subtotal</span><b>' + money(c.sub) + '</b></div>' +
-      (c.disc ? '<div class="r"><span>Discount</span><b>-' + money(c.disc) + '</b></div>' : '') +
+      (c.memberDisc ? '<div class="r"><span>Family member discount</span><b>-' + money(c.memberDisc) + '</b></div>' : '') + (c.disc - c.memberDisc > 0.005 ? '<div class="r"><span>Extra discount</span><b>-' + money(D.r2(c.disc - c.memberDisc)) + '</b></div>' : '') +
       '<div class="r big"><span>Total</span><b>' + money(c.total) + '</b></div>' +
       (c.adv ? '<div class="r"><span>Advance already received</span><b>' + money(c.adv) + '</b></div>' : '') +
       '<div class="r"><span>Paid now</span><b>' + money(c.paid) + '</b></div>' +
@@ -351,11 +383,11 @@
     return '<div class="paper"><div class="ph"><div class="lg">' + logoHtml() + '</div><div><h2>' + esc(s.name) + '</h2>' +
       (s.tagline ? '<p><i>' + esc(s.tagline) + '</i></p>' : '') + (s.address ? '<p>' + esc(s.address) + '</p>' : '') +
       '<p>' + [s.phone ? 'Ph: ' + esc(s.phone) : '', s.email ? esc(s.email) : ''].filter(Boolean).join(' · ') + '</p></div></div>' +
-      '<div class="meta"><div><b>Bill ' + esc(inv.no) + '</b>' + (inv.void ? '<span class="stamp">CANCELLED</span>' : '') + '<br>' + fmtDate(inv.date) + (inv.orderNo ? '<br><i>Pre-order ' + esc(inv.orderNo) + '</i>' : '') + '</div><div style="text-align:right"><b>' + esc(inv.customerName) + '</b>' + (inv.customerPhone ? '<br>' + esc(inv.customerPhone) : '') + '</div></div>' +
+      '<div class="meta"><div><b>Bill ' + esc(inv.no) + '</b>' + (inv.void ? '<span class="stamp">CANCELLED</span>' : '') + '<br>' + fmtDate(inv.date) + (inv.orderNo ? '<br><i>Pre-order ' + esc(inv.orderNo) + '</i>' : '') + '</div><div style="text-align:right"><b>' + esc(inv.customerName) + '</b>' + (inv.customerPhone ? '<br>' + esc(inv.customerPhone) : '') + (inv.memberNo ? '<br><i>Family Card ' + maskNo(inv.memberNo) + '</i>' : '') + '</div></div>' +
       '<table><tr><th>Item</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr>' +
       inv.lines.map(l => '<tr><td>' + esc(l.name) + '</td><td class="r">' + qf(l.qty) + ' ' + l.unit + '</td><td class="r">' + money(l.rate) + '</td><td class="r">' + money(l.amount) + '</td></tr>').join('') + '</table>' +
       '<div class="tot"><div><span>Subtotal</span><span>' + money(inv.subtotal) + '</span></div>' +
-      (inv.discount ? '<div><span>Discount</span><span>-' + money(inv.discount) + '</span></div>' : '') +
+      (inv.memberDiscount ? '<div><span>Family member discount</span><span>-' + money(inv.memberDiscount) + '</span></div>' : '') + (inv.discount - (inv.memberDiscount || 0) > 0.005 ? '<div><span>Discount</span><span>-' + money(D.r2(inv.discount - (inv.memberDiscount || 0))) + '</span></div>' : '') +
       '<div class="g"><span>Total</span><span>' + money(inv.total) + '</span></div>' +
       (inv.advanceUsed ? '<div><span>Pre-order advance adjusted</span><span>' + money(inv.advanceUsed) + '</span></div>' : '') +
       '<div><span>Paid (' + esc(inv.method) + ')</span><span>' + money(inv.paid) + '</span></div>' +
@@ -368,7 +400,7 @@
     const s = D.state.settings;
     return '*' + s.name + '*\nBill ' + inv.no + ' · ' + fmtDate(inv.date) + (inv.orderNo ? '\nPre-order: ' + inv.orderNo : '') + '\nCustomer: ' + inv.customerName + '\n\n' +
       inv.lines.map((l, i) => (i + 1) + '. ' + l.name + ' × ' + qf(l.qty) + ' ' + l.unit + ' = ' + money(l.amount)).join('\n') +
-      '\n\n' + (inv.discount ? 'Discount: -' + money(inv.discount) + '\n' : '') + 'Total: ' + money(inv.total) + '\nPaid: ' + money(inv.paid) +
+      '\n\n' + (inv.memberDiscount ? 'Family member discount: -' + money(inv.memberDiscount) + '\n' : '') + (inv.discount - (inv.memberDiscount || 0) > 0.005 ? 'Discount: -' + money(D.r2(inv.discount - (inv.memberDiscount || 0))) + '\n' : '') + 'Total: ' + money(inv.total) + '\nPaid: ' + money(inv.paid) +
       (inv.billBalance > 0.005 ? '\nBalance due: ' + money(inv.billBalance) : '') + '\n\n' + s.footer;
   }
 
@@ -384,7 +416,7 @@
     return top(s.name, s.tagline, { home: true }) + '<div class="page stagger">' +
       '<div class="hero"><small>Today\'s sales</small><div class="big" data-count="' + t.todaySales + '">' + money(t.todaySales) + '</div><div class="sub"><span>' + t.todayBills + ' bills</span><span>Profit ' + money(t.todayProfit) + '</span></div></div>' +
       '<div class="tiles">' + tile('bill', 'receipt', 'New Bill', 'gold') + tile('buyMenu', 'cart', 'Buy Stock') + tile('pack', 'pack', 'Pack Products') + tile('stock', 'box', 'Stock') +
-      tile('orders', 'clip', 'Pre-orders', '', t.pendingOrders ? t.pendingOrders + ' waiting' : '') + tile('invoices', 'receipt', 'All Bills') + tile('reports', 'chart', 'Reports') + tile('settings', 'gear', 'Settings') + '</div>' +
+      tile('orders', 'clip', 'Pre-orders', '', t.pendingOrders ? t.pendingOrders + ' waiting' : '') + tile('invoices', 'receipt', 'All Bills') + tile('cards', 'users', 'Family Cards', 'gold') + tile('purchases', 'cart', 'Purchases') + tile('reports', 'chart', 'Reports') + tile('settings', 'gear', 'Settings') + '</div>' +
       (start ? '<div class="card"><h3>How to start</h3>' +
         [['1', 'Buy Stock', 'Raw material first, then packaging', 'buyMenu'], ['2', 'Pack Products', 'Turn raw material into packets', 'pack'], ['3', 'New Bill', 'Sell and print the bill', 'bill']]
           .map(a => '<div class="row" data-act="goto" data-n="' + a[3] + '"><div class="ico gold">' + a[0] + '</div><div class="main"><div class="t">' + a[1] + '</div><div class="s">' + a[2] + '</div></div></div>').join('') + '</div>' : '') +
@@ -420,7 +452,7 @@
         '<div class="row" style="cursor:default"><div class="ico">' + esc(c.cust.name.slice(0, 1).toUpperCase()) + '</div><div class="main"><div class="t">' + esc(c.cust.name) + '</div><div class="s ' + balLabel('customers', c.cust.balance).c + '">' + balLabel('customers', c.cust.balance).t + '</div></div>' + (ord ? '' : '<button class="btn sm ghost" data-act="billCust">Change</button>') + '</div>' :
         '<div class="field"><label>Name (optional)</label><input placeholder="Walk-in customer" value="' + esc(b.walkName) + '" data-in="f" data-d="bill" data-f="walkName"></div><button class="btn ghost block" data-act="billCust">' + ic('user') + 'Choose saved customer (for due / advance)</button>') + '</div>' +
       '<div class="card"><h3>Items</h3><div id="lines">' + sellLines('bill') + '</div><button class="btn block" data-act="addLine" data-d="bill">' + ic('plus') + 'Add item</button></div>' +
-      '<div class="card"><div class="field"><label>Discount (₹)</label><input type="number" inputmode="decimal" value="' + esc(b.discount) + '" placeholder="0" data-in="f" data-d="bill" data-f="discount"></div>' +
+      '<div class="card"><div class="field"><label>' + (c.mem ? 'Extra discount on top of member discount (₹)' : 'Discount (₹)') + '</label><input type="number" inputmode="decimal" value="' + esc(b.discount) + '" placeholder="0" data-in="f" data-d="bill" data-f="discount"></div>' +
       (c.cust ? '<div class="field"><label>Paid now (₹)</label><input id="paidIn" type="number" inputmode="decimal" value="' + (b.paid === null ? c.auto : esc(b.paid)) + '" data-in="f" data-d="bill" data-f="paid"></div><div class="btns" style="margin:-4px 0 12px"><button class="btn sm ghost" data-act="paidFull">Full amount</button><button class="btn sm ghost" data-act="paidNone">Nothing (keep as due)</button></div>' : '<div class="note green">Walk-in bills are paid in full. Choose a saved customer to keep a due.</div>') +
       '<div class="field" style="margin-bottom:0"><label>Payment method</label>' + methodSeg('bill', b.method) + '</div></div>' +
       '<div class="tbox" id="btot">' + billTotals() + '</div>' +
@@ -473,6 +505,7 @@
     return top(it.name, KIND[it.kind].n + (raw ? ' · from ' + raw.name : '')) + '<div class="page stagger">' +
       '<div class="grid2"><div class="stat"><small>In stock</small><b>' + qf(it.stock) + ' ' + it.unit + '</b></div><div class="stat"><small>Cost per ' + it.unit + '</small><b>' + money(D.r2(it.cost)) + '</b></div>' +
       '<div class="stat green"><small>Selling price</small><b>' + (it.price ? money(it.price) : '—') + '</b></div><div class="stat"><small>Stock worth</small><b>' + money(D.r2(Math.max(it.stock, 0) * it.cost)) + '</b></div></div>' +
+      (it.price && it.kind !== 'pack' ? '<div class="note green">Member price: <b>' + money(D.r2(it.price * (1 - D.memberPct(it.id) / 100))) + '</b> (' + D.memberPct(it.id) + '% off for Family Card holders)</div>' : '') +
       acts +
       '<div class="btns" style="margin-bottom:14px"><button class="btn ghost" data-act="itemEdit" data-id="' + it.id + '">Edit</button><button class="btn ghost" data-act="fsOpen" data-id="' + it.id + '">Fix stock</button><button class="btn danger" data-act="itemArchive" data-id="' + it.id + '">Remove</button></div>' +
       '<div class="card"><h3>Recent movement</h3>' + (mv.map(m => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(m.type) + '</div><div class="s">' + fmtDate(m.date) + (m.ref ? ' · ' + esc(m.ref) : '') + '</div></div><div class="end"><b class="' + (m.qty >= 0 ? 'pos' : 'neg') + '">' + (m.qty >= 0 ? '+' : '') + qf(m.qty) + ' ' + it.unit + '</b></div></div>').join('') || '<div class="empty" style="padding:14px">Nothing yet</div>') + '</div></div>';
@@ -664,14 +697,39 @@
       '<div class="btns" style="margin-bottom:10px">' + (cust ? '<button class="btn" data-act="custBill" data-id="' + pr.id + '">' + ic('receipt') + 'New bill</button><button class="btn" data-act="custOrder" data-id="' + pr.id + '">' + ic('clip') + 'Order</button>' : '<button class="btn" data-act="vendBuy" data-id="' + pr.id + '">' + ic('cart') + 'Buy stock</button>') +
       (pr.phone ? '<a class="btn" style="text-decoration:none" href="tel:' + esc(pr.phone) + '">' + ic('phone') + 'Call</a>' : '') + '</div>' +
       (cust && pr.balance > 0.005 && pr.phone ? '<button class="btn ghost block" style="margin-bottom:10px" data-act="remind" data-id="' + pr.id + '">Send reminder on WhatsApp</button>' : '') +
+      (cust ? (pr.member ? '<div class="note green" style="display:flex;gap:10px;align-items:center;justify-content:space-between"><span><b>Family Member</b><br>Card ' + maskNo(pr.member.no) + '</span><button class="btn sm primary" data-act="goto" data-n="card" data-id="' + pr.id + '">View card</button></div>' : '<button class="btn gold block" style="margin-bottom:10px" data-act="cardIssue" data-id="' + pr.id + '">Make Family Member (card)</button>') : '') +
       '<div class="btns" style="margin-bottom:14px"><button class="btn ghost" data-act="personEdit" data-kind="' + k + '" data-id="' + pr.id + '">Edit</button><button class="btn danger" data-act="personDel" data-kind="' + k + '" data-id="' + pr.id + '">Remove</button></div>' +
       '<div class="card"><h3>History</h3>' + (pr.ledger.slice().reverse().slice(0, 60).map(e => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(e.desc) + '</div><div class="s">' + fmtDate(e.date) + (e.method ? ' · ' + esc(e.method) : '') + '</div></div><div class="end"><b class="' + (e.amt > 0 ? 'neg' : 'pos') + '">' + (e.amt > 0 ? '+' : '-') + money(Math.abs(e.amt)) + '</b><div class="s">Balance ' + money(e.bal) + '</div>' + (['opening', 'payment', 'advance'].includes(e.type) && !e.ref ? '<button class="btn sm danger" style="margin-top:4px" data-act="ledDel" data-kind="' + k + '" data-p="' + pr.id + '" data-e="' + e.id + '">Delete</button>' : '') + '</div></div>').join('') || '<div class="empty" style="padding:14px">No history yet</div>') + '</div></div>';
   };
 
   /* ---------- MORE / REPORTS / SETTINGS ---------- */
   SCREENS.more = () => top('More', 'Everything else') + '<div class="page"><div class="card">' +
-    [['cart', 'gold', 'Buy Stock', 'Raw material and packaging', 'buyMenu'], ['pack', 'blue', 'Pack Products', 'Turn raw material into packets', 'pack'], ['clip', 'gold', 'Pre-orders', 'Customer and vendor orders with advance', 'orders'], ['receipt', '', 'All bills', 'Search old bills', 'invoices'], ['cart', '', 'Purchase history', 'What you bought before', 'purchases'], ['clip', '', 'Packing history', 'What you packed before', 'packings'], ['chart', '', 'Reports', 'Sales, profit, cash', 'reports'], ['gear', '', 'Settings & backup', 'Logo, address, backup', 'settings']]
+    [['cart', 'gold', 'Buy Stock', 'Raw material and packaging', 'buyMenu'], ['pack', 'blue', 'Pack Products', 'Turn raw material into packets', 'pack'], ['clip', 'gold', 'Pre-orders', 'Customer and vendor orders with advance', 'orders'], ['users', 'gold', 'Family Cards', 'Members and member discount', 'cards'], ['receipt', '', 'All bills', 'Search old bills', 'invoices'], ['cart', '', 'Purchase history', 'What you bought before', 'purchases'], ['clip', '', 'Packing history', 'What you packed before', 'packings'], ['chart', '', 'Reports', 'Sales, profit, cash', 'reports'], ['gear', '', 'Settings & backup', 'Logo, address, backup', 'settings']]
       .map(a => '<div class="row" data-act="goto" data-n="' + a[4] + '"><div class="ico ' + a[1] + '">' + ic(a[0]) + '</div><div class="main"><div class="t">' + a[2] + '</div><div class="s">' + a[3] + '</div></div></div>').join('') + '</div></div>';
+
+  /* ---------- FAMILY MEMBERSHIP CARD ---------- */
+  SCREENS.cards = () => {
+    const q = (S.q.cards || '').toLowerCase(), qd = q.replace(/\D/g, '');
+    const all = D.state.customers.filter(c => c.member && !c.archived), r = D.report('0000-01-01', '9999-12-31');
+    const l = all.filter(c => !q || c.name.toLowerCase().includes(q) || (qd && c.member.no.includes(qd))).sort((a, b) => b.member.since.localeCompare(a.member.since));
+    return top('Family Cards', all.length + ' members · discount ' + D.state.settings.memberPct + '%') + '<div class="page">' +
+      '<div class="grid2"><div class="stat green"><small>Members</small><b>' + all.length + '</b></div><div class="stat gold"><small>Card fees earned</small><b>' + money(r.cardIncome) + '</b></div></div>' +
+      '<div class="search"><input placeholder="Find by name or mobile number" data-in="q" data-k="cards" value="' + esc(S.q.cards || '') + '"></div><div class="card" id="list">' + cardList(l) + '</div>' +
+      '<button class="btn gold block" style="margin-top:6px" data-act="cardNew">' + ic('plus') + 'Make a new member</button></div>';
+  };
+  const cardList = l => l.map(c => '<div class="row" data-act="goto" data-n="card" data-id="' + c.id + '"><div class="ico gold">' + esc(c.name.slice(0, 1).toUpperCase()) + '</div><div class="main"><div class="t">' + esc(c.name) + '</div><div class="s">' + maskNo(c.member.no) + ' · since ' + fmtDate(c.member.since) + '</div></div><div class="end"><span class="pill">Member</span></div></div>').join('') || empty('users', 'No members found', 'Open a customer and tap "Make Family Member".');
+  SCREENS.card = p => {
+    const c = D.find('customers', p.id);
+    if (!c || !c.member) return top('Family Card', '') + '<div class="page">' + empty('users', 'Not a member') + '</div>';
+    const spent = D.sum(D.state.invoices.filter(i => !i.void && i.customerId === c.id).map(i => i.total)), saved = D.sum(D.state.invoices.filter(i => !i.void && i.customerId === c.id).map(i => i.memberDiscount || 0));
+    return top('Family Card', c.name) + '<div class="page stagger">' +
+      '<div class="fcard"><div class="fc-top"><div class="fc-logo">' + logoHtml() + '</div><div><b>' + esc(D.state.settings.name) + '</b><small>Family Membership Card</small></div></div>' +
+      '<div class="fc-no">' + maskNo(c.member.no) + '</div><div class="fc-bot"><div><div class="fc-name">' + esc(c.name) + '</div><small>Member since ' + fmtDate(c.member.since) + '</small></div><div class="fc-qr">' + qrSvg(c.member.no, 92) + '</div></div></div>' +
+      '<div class="grid2"><div class="stat"><small>Total bought</small><b>' + money(spent) + '</b></div><div class="stat green"><small>Member savings</small><b>' + money(saved) + '</b></div></div>' +
+      '<div class="note">The QR holds only the mobile number. Staff can find the member by typing it in <b>Family Cards</b>. Discount: ' + D.state.settings.memberPct + '% on all products, or the percent set on each raw material.</div>' +
+      '<div class="btns"><button class="btn gold" data-act="cardShare" data-id="' + c.id + '">' + ic('share') + 'Share card</button><button class="btn" data-act="goto" data-n="person" data-kind="customers" data-id="' + c.id + '">' + ic('user') + 'Customer</button></div>' +
+      '<button class="btn danger block" style="margin-top:10px" data-act="cardRevoke" data-id="' + c.id + '">Cancel membership</button></div>';
+  };
 
   function range(f) {
     const t = D.today();
@@ -692,7 +750,7 @@
     const s = D.state.settings;
     return top('Settings', 'Shown on your bills') + '<div class="page"><div class="card"><h3>Business details</h3>' +
       '<div class="field"><label>Logo</label><div class="row" style="cursor:default;border:0"><div class="ico" style="width:60px;height:60px;border-radius:50%;overflow:hidden">' + logoHtml() + '</div><div class="main"><button class="btn sm" data-act="logoPick">Choose logo</button> ' + (s.logo ? '<button class="btn sm danger" data-act="logoDel">Use ECOLaver logo</button>' : '') + '</div></div><input type="file" id="logoFile" accept="image/*" class="hidden"></div>' +
-      [['s-name', 'Company name', s.name], ['s-tag', 'Tagline', s.tagline], ['s-addr', 'Address', s.address], ['s-phone', 'Phone', s.phone], ['s-email', 'Email (optional)', s.email], ['s-upi', 'UPI ID (optional, printed on bills with a balance)', s.upi], ['s-prefix', 'Bill number starts with', s.invoicePrefix], ['s-foot', 'Message at the bottom of the bill', s.footer]]
+      [['s-name', 'Company name', s.name], ['s-mpct', 'Family card: member discount % (all products)', s.memberPct], ['s-cfee', 'Family card fee (₹)', s.cardFee], ['s-tag', 'Tagline', s.tagline], ['s-addr', 'Address', s.address], ['s-phone', 'Phone', s.phone], ['s-email', 'Email (optional)', s.email], ['s-upi', 'UPI ID (optional, printed on bills with a balance)', s.upi], ['s-prefix', 'Bill number starts with', s.invoicePrefix], ['s-foot', 'Message at the bottom of the bill', s.footer]]
         .map(a => '<div class="field"><label>' + a[1] + '</label><input id="' + a[0] + '" value="' + esc(a[2]) + '"></div>').join('') +
       '<button class="btn primary block" data-act="setSave">Save</button></div>' +
       (NATIVE ? '<div class="card"><h3>App update <small>build ' + BUILD + '</small></h3>' + (S.upd ? '<div class="note green">A new version is available (build ' + S.upd.build + ').</div><button class="btn primary block" data-act="updNow">Update now</button>' : '<p class="mut" style="margin-bottom:12px;font-size:14px">Your app is up to date.</p><button class="btn block" data-act="updCheck">Check for update</button>') + '</div>' : '') +
@@ -758,7 +816,7 @@
           const ok = await confirmSheet({ title: 'Not enough stock', text: issues.map(i => i.name + ': need ' + qf(i.need) + ' ' + i.unit + ', have ' + qf(i.have)).join('\n') + '\n\nSell anyway? Stock will go below zero.', ok: 'Sell anyway' });
           if (!ok) return;
         }
-        const inv = D.invoice({ customerId: b.customerId, walkName: b.walkName, lines, discount: c.disc, paid: c.paid, method: b.method, orderId: b.orderId });
+        const inv = D.invoice({ customerId: b.customerId, walkName: b.walkName, lines, discount: c.disc, memberDiscount: c.memberDisc, memberNo: c.mem ? c.mem.no : '', paid: c.paid, method: b.method, orderId: b.orderId });
         S.bill = null;
         go('invoice', { id: inv.id, fresh: 1 }, true);
       } catch (e) { toast(e.message, 1); }
@@ -795,7 +853,7 @@
     itemSave(el) {
       try {
         const id = el.dataset.id, it = D.item(id), v = s => $(s) ? $(s).value : null;
-        D.updateItem(id, { name: v('#f-name') === null ? it.name : v('#f-name'), price: v('#f-price') === null ? it.price : v('#f-price'), low: v('#f-low') });
+        D.updateItem(id, { name: v('#f-name') === null ? it.name : v('#f-name'), price: v('#f-price') === null ? it.price : v('#f-price'), low: v('#f-low'), memberPct: v('#f-mp') === null ? it.memberPct : v('#f-mp') });
         closeSheet(); toast('Saved'); draw(true);
       } catch (e) { toast(e.message, 1); }
     },
@@ -883,6 +941,25 @@
     },
     /* orders */
     vorderNew() { S.buy = newBuy('raw', 'order'); go('buy'); },
+    cardIssue(el) {
+      const c = D.find('customers', el.dataset.id);
+      if (D.digits(c.phone).length < 10) return toast('Add a 10 digit mobile number to this customer first (tap Edit)', 1);
+      openSheet('<h2>Make Family Member</h2><p class="mut" style="margin-bottom:12px">' + esc(c.name) + ' · card number is the mobile number ' + esc(D.digits(c.phone)) + '</p><div class="field"><label>Card fee received (₹)</label><input id="cf-fee" type="number" inputmode="decimal" value="' + D.state.settings.cardFee + '"></div><div class="field"><label>Paid by</label><select id="cf-m"><option>Cash</option><option>UPI</option><option>Card</option></select></div><button class="btn primary block" data-act="cardIssueDo" data-id="' + c.id + '">Make member</button>');
+    },
+    cardIssueDo(el) { try { D.issueCard(el.dataset.id, $('#cf-fee').value, $('#cf-m').value); closeSheet(); toast('Family card created'); go('card', { id: el.dataset.id }); } catch (e) { toast(e.message, 1); } },
+    cardNew() { pickPerson('customers', id => { const c = D.find('customers', id); if (c.member) go('card', { id }); else ACT.cardIssue({ dataset: { id } }); }); },
+    async cardRevoke(el) {
+      const ok = await confirmSheet({ title: 'Cancel membership?', text: 'The card is removed and the card fee entry is removed from the customer account. Old bills stay as they are.', ok: 'Cancel membership', danger: true });
+      if (!ok) return; D.revokeCard(el.dataset.id); toast('Membership cancelled'); if (!goBack()) tab('home');
+    },
+    async cardShare(el) {
+      const c = D.find('customers', el.dataset.id);
+      try {
+        const cv = await cardCanvas(c);
+        if (NATIVE) await shareFile('family-card-' + c.member.no.slice(-3) + '.png', cv.toDataURL('image/png').split(',')[1], false, 'Family Card');
+        else { const a = document.createElement('a'); a.href = cv.toDataURL('image/png'); a.download = 'family-card.png'; document.body.appendChild(a); a.click(); a.remove(); }
+      } catch (e) { toast(e.message, 1); }
+    },
     fltOrdK(el) { S.flt.ordk = el.dataset.v; S.flt.orders = 'pending'; draw(true); },
     orderNew() { if (S.flt.ordk === 'vendors') { S.buy = newBuy('raw', 'order'); go('buy'); } else { S.order = null; go('orderNew'); } },
     vorderOpen(el) {
@@ -988,7 +1065,7 @@
     logoDel() { D.saveSettings({ logo: '' }); draw(true); },
     setSave() {
       const v = s => $(s).value.trim();
-      D.saveSettings({ name: v('#s-name') || 'My Business', tagline: v('#s-tag'), address: v('#s-addr'), phone: v('#s-phone'), email: v('#s-email'), upi: v('#s-upi'), invoicePrefix: v('#s-prefix') || 'INV-', footer: v('#s-foot') });
+      D.saveSettings({ name: v('#s-name') || 'My Business', tagline: v('#s-tag'), address: v('#s-addr'), phone: v('#s-phone'), email: v('#s-email'), upi: v('#s-upi'), invoicePrefix: v('#s-prefix') || 'INV-', footer: v('#s-foot'), memberPct: Math.min(Math.max(num(v('#s-mpct')), 0), 100), cardFee: Math.max(num(v('#s-cfee')), 0) });
       toast('Saved'); draw(true);
     },
     async backup() {
@@ -1042,6 +1119,7 @@
       UPD.pack();
     } else if (k === 'q') {
       S.q[t.dataset.k] = t.value;
+      if (t.dataset.k === 'cards') { const ql = t.value.toLowerCase(), qd = ql.replace(/\D/g, ''); $('#list').innerHTML = cardList(D.state.customers.filter(c => c.member && !c.archived && (!ql || c.name.toLowerCase().includes(ql) || (qd && c.member.no.includes(qd))))); return; }
       const L = { stock: stockList, people: peopleList, inv: invList }[t.dataset.k];
       if (L) $('#list').innerHTML = L();
     } else if (k === 'pq') {
