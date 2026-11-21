@@ -49,8 +49,8 @@
         name: 'ECOLaver', tagline: 'Choose nature, live better', address: '', phone: '', email: '',
         upi: '', logo: '', invoicePrefix: 'EL-', footer: 'Thank you for choosing nature!', lowDefault: 5
       },
-      items: [], customers: [], vendors: [], purchases: [], batches: [], invoices: [], orders: [], adjustments: [],
-      counters: { invoice: 1, purchase: 1, order: 1 }
+      items: [], customers: [], vendors: [], purchases: [], batches: [], invoices: [], orders: [], vorders: [], adjustments: [],
+      counters: { invoice: 1, purchase: 1, order: 1, vorder: 1 }
     };
   }
 
@@ -141,7 +141,7 @@
     if (!p) return;
     const used = kind === 'customers'
       ? (state.invoices.some(i => i.customerId === id) || state.orders.some(o => o.customerId === id))
-      : state.purchases.some(x => x.vendorId === id);
+      : (state.purchases.some(x => x.vendorId === id) || state.vorders.some(x => x.vendorId === id));
     if (!used) state[kind] = state[kind].filter(x => x.id !== id);
     else p.archived = true;
     save();
@@ -288,7 +288,11 @@
     const market = !from || nk(from) === nk(MARKET) || nk(from) === 'market';
     const due = r2(sub - paid); // the extra cost is paid by you directly, not to the vendor
     if (Math.abs(due) > 0.005 && market) throw new Error('Type the vendor name to keep the ' + (due > 0 ? 'unpaid amount' : 'extra money paid'));
-    let vendor = null;
+    let vendor = null, vo = null;
+    if (d.orderId) {
+      vo = find('vorders', d.orderId);
+      if (!vo || vo.status !== 'pending') throw new Error('This pre-order is not pending any more');
+    }
     if (!market) {
       vendor = state.vendors.find(v => !v.archived && nk(v.name) === nk(from)) || null;
       if (!vendor && Math.abs(due) > 0.005) vendor = addPerson('vendors', { name: from });
@@ -325,9 +329,10 @@
     });
     const pu = {
       id: uid(), no, date: d.date || today(), ts: Date.now(), vendorId: vendor ? vendor.id : '', vendorName: market ? MARKET : (vendor ? vendor.name : from),
-      lines: out, items: r2(sub), extra: r2(extra), extras: (d.extras || []).filter(e => +e.amount > 0).map(e => ({ label: clean(e.label), amount: r2(+e.amount) })), total, paid: r2(paid), note: d.note || '', method: d.method || 'Cash'
+      orderId: vo ? vo.id : '', orderNo: vo ? vo.no : '', advanceUsed: vo ? vo.advance : 0, lines: out, items: r2(sub), extra: r2(extra), extras: (d.extras || []).filter(e => +e.amount > 0).map(e => ({ label: clean(e.label), amount: r2(+e.amount) })), total, paid: r2(paid), note: d.note || '', method: d.method || 'Cash'
     };
     state.purchases.push(pu);
+    if (vo) { vo.status = 'received'; vo.purchaseId = pu.id; }
     if (vendor) {
       ledger(vendor, 'purchase', 'Purchase ' + no, r2(sub), pu.id, '', pu.date);
       if (paid > 0) ledger(vendor, 'payment', 'Paid on ' + no, -paid, pu.id, pu.method, pu.date);
@@ -341,6 +346,7 @@
     if (!pu) throw new Error('Not found');
     pu.lines.forEach(l => { const it = item(l.itemId); if (it) it.stock = r3(it.stock - l.qtyBase); });
     dropLedgerRef('vendors', pu.vendorId, pu.id);
+    if (pu.orderId) { const vo = find('vorders', pu.orderId); if (vo) { vo.status = 'pending'; vo.purchaseId = ''; } }
     state.purchases = state.purchases.filter(p => p.id !== id);
     prune(pu.lines.map(l => l.itemId).sort((a, b) => (item(a) && item(a).kind === 'pack' ? -1 : 1)));
     save();
@@ -482,7 +488,7 @@
       customerName: cust ? cust.name : ((d.walkName || '').trim() || 'Walk-in customer'),
       customerPhone: cust ? cust.phone : '', lines, subtotal, discount: r2(discount), total, paid: r2(paid),
       method: d.method || 'Cash', advanceUsed, billBalance: r2(total - paid - advanceUsed), cogs, profit: r2(total - cogs),
-      note: d.note || '', orderId: order ? order.id : '', void: false
+      note: d.note || '', orderId: order ? order.id : '', orderNo: order ? order.no : '', void: false
     };
     lines.forEach(l => { const it = item(l.itemId); it.stock = r3(it.stock - l.qtyBase); });
     state.invoices.push(inv);
@@ -529,10 +535,10 @@
   function order(d) {
     const cust = find('customers', d.customerId);
     if (!cust) throw new Error('Choose a customer');
-    const lines = (d.lines || []).filter(l => l.itemId && +l.qty > 0).map(l => {
-      const it = item(l.itemId);
-      const qty = +l.qty, unit = l.unit || it.unit, rate = +l.rate || 0;
-      return { itemId: it.id, name: it.name, qty, unit, rate, amount: r2(qty * rate) };
+    const lines = (d.lines || []).filter(l => +l.qty > 0 && (l.itemId || clean(l.name))).map(l => {
+      const it = l.itemId ? item(l.itemId) : null;
+      const qty = +l.qty, unit = l.unit || (it ? it.unit : 'pcs'), rate = +l.rate || 0;
+      return { itemId: it ? it.id : '', name: it ? it.name : clean(l.name), qty, unit, rate, amount: r2(qty * rate) };
     });
     if (!lines.length) throw new Error('Add at least one item');
     const advance = Math.max(+d.advance || 0, 0);
@@ -567,6 +573,40 @@
     save();
   }
 
+  /* ---------- pre-orders to vendors (advance paid, goods not arrived yet) ---------- */
+  function vendorOrder(d) {
+    const name = clean(d.vendor);
+    if (!name) throw new Error('Type the vendor name');
+    const lines = (d.lines || []).filter(l => +l.qty > 0 && (clean(l.name) || clean(l.rawName)));
+    if (!lines.length) throw new Error('Add at least one item you ordered');
+    const advance = Math.max(+d.advance || 0, 0);
+    let v = state.vendors.find(x => !x.archived && nk(x.name) === nk(name));
+    if (!v) v = addPerson('vendors', { name });
+    const no = 'VORD-' + pad(state.counters.vorder++, 4);
+    const total = r2(sum(lines.map(l => +l.total || 0)));
+    const o = { id: uid(), no, date: today(), ts: Date.now(), vendorId: v.id, vendorName: v.name, lines: lines.map(l => Object.assign({}, l)), total, advance: r2(advance), method: d.method || 'Cash', expectedDate: d.expectedDate || '', note: d.note || '', status: 'pending', purchaseId: '' };
+    state.vorders.push(o);
+    if (advance > 0) ledger(v, 'advance', 'Advance for order ' + no, -advance, o.id, o.method);
+    save();
+    return o;
+  }
+  function cancelVendorOrder(id) {
+    const o = find('vorders', id);
+    if (!o || o.status !== 'pending') throw new Error('Cannot cancel this order');
+    o.status = 'cancelled';
+    const v = find('vendors', o.vendorId);
+    if (v && o.advance > 0) ledger(v, 'refund', 'Advance returned for ' + o.no, o.advance, o.id);
+    save();
+  }
+  function deleteVendorOrder(id) {
+    const o = find('vorders', id);
+    if (!o) throw new Error('Not found');
+    if (o.status === 'received') throw new Error('Goods were received. Delete that purchase first.');
+    dropLedgerRef('vendors', o.vendorId, o.id);
+    state.vorders = state.vorders.filter(x => x.id !== id);
+    save();
+  }
+
   /* ---------- history, totals, reports ---------- */
   function movements(id) {
     const out = [];
@@ -598,7 +638,7 @@
       monthSales: r2(sum(sales.filter(i => i.date.slice(0, 7) === month).map(i => i.total))),
       monthProfit: r2(sum(sales.filter(i => i.date.slice(0, 7) === month).map(i => i.profit))),
       low: act.filter(i => i.low > 0 && i.stock <= i.low),
-      pendingOrders: state.orders.filter(o => o.status === 'pending').length
+      pendingOrders: state.orders.filter(o => o.status === 'pending').length + state.vorders.filter(o => o.status === 'pending').length
     };
   }
 
@@ -666,7 +706,7 @@
     get state() { return state; }, get lastError() { return lastError; }, get notice() { return notice; },
     item, find, rawItems, findRaw, places, addPerson, updatePerson, removePerson, payment, deleteLedgerEntry,
     updateItem, removeItem, stockAdjust, purchase, deletePurchase, packGroups, rawsWithPacks, packetCost, packPlan, pack, undoBatch, suggest,
-    stockIssues, invoice, voidInvoice, deleteInvoice, order, cancelOrder, deleteOrder, movements, totals, lastDays, report,
+    stockIssues, vendorOrder, cancelVendorOrder, deleteVendorOrder, invoice, voidInvoice, deleteInvoice, order, cancelOrder, deleteOrder, movements, totals, lastDays, report,
     exportJSON, importJSON, resetAll, saveSettings
   };
 

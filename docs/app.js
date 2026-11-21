@@ -39,7 +39,7 @@
 
   /* ---------- state ---------- */
   const S = { stack: [], bill: null, order: null, buy: null, pack: null, pick: null, conf: null, formDone: null,
-    flt: { stock: 'all', people: 'customers', orders: 'pending', rep: 'today' }, q: {} };
+    flt: { stock: 'all', people: 'customers', orders: 'pending', ordk: 'customers', rep: 'today' }, q: {} };
   let cur = { n: 'home', p: {} };
   const KIND = { raw: { n: 'Raw material', c: '' }, pack: { n: 'Packaging', c: 'gold' }, product: { n: 'Packed product', c: 'blue' } };
 
@@ -139,7 +139,7 @@
       x.globalAlpha = 1;
       let y = 200;
       x.fillStyle = '#111'; x.font = 'bold 26px ' + F; x.fillText('Bill ' + inv.no, P, y);
-      x.font = '22px ' + F; x.fillStyle = '#555'; x.fillText(fmtDate(inv.date), P, y + 32);
+      x.font = '22px ' + F; x.fillStyle = '#555'; x.fillText(fmtDate(inv.date) + (inv.orderNo ? '  ·  Pre-order ' + inv.orderNo : ''), P, y + 32);
       x.textAlign = 'right'; x.fillStyle = '#111'; x.font = 'bold 24px ' + F; x.fillText(fit(inv.customerName, 330), W - P, y);
       if (inv.customerPhone) { x.font = '20px ' + F; x.fillStyle = '#555'; x.fillText(inv.customerPhone, W - P, y + 30); }
       y = 270;
@@ -160,7 +160,7 @@
       if (inv.discount) row('Discount', '-' + money(inv.discount));
       x.fillStyle = '#00552c'; x.fillRect(330, y - 26, W - P - 330, 2); y += 12;
       row('Total', money(inv.total), true);
-      if (inv.advanceUsed) row('Advance adjusted', money(inv.advanceUsed));
+      if (inv.advanceUsed) row('Pre-order advance', money(inv.advanceUsed));
       row('Paid (' + inv.method + ')', money(inv.paid));
       if (Math.abs(inv.billBalance) > 0.005) row(inv.billBalance > 0 ? 'Balance due' : 'Advance balance', money(Math.abs(inv.billBalance)));
       y += 20;
@@ -301,9 +301,9 @@
 
   /* ---------- shared line editors ---------- */
   function sellLine(d, l, i) {
-    const it = D.item(l.itemId);
-    const us = D.compat(it.unit);
-    return '<div class="line"><div class="head"><b>' + esc(it.name) + '</b><span class="mut" style="font-size:12px">Stock ' + qf(it.stock) + ' ' + it.unit + '</span><button class="x" data-act="lineDel" data-d="' + d + '" data-i="' + i + '">×</button></div>' +
+    const it = l.itemId ? D.item(l.itemId) : { name: l.name, unit: l.unit, stock: 0, free: 1 };
+    const us = it.free ? D.UNITS : D.compat(it.unit);
+    return '<div class="line"><div class="head"><b>' + esc(it.name) + '</b><span class="mut" style="font-size:12px">' + (it.free ? 'Not in stock yet' : 'Stock ' + qf(it.stock) + ' ' + it.unit) + '</span><button class="x" data-act="lineDel" data-d="' + d + '" data-i="' + i + '">×</button></div>' +
       '<div class="three"><div class="field"><label>Qty</label><input type="number" inputmode="decimal" step="any" value="' + esc(l.qty) + '" data-in="line" data-d="' + d + '" data-i="' + i + '" data-f="qty"></div>' +
       '<div class="field"><label>Unit</label>' + (us.length > 1 ? '<select data-ch="unit" data-d="' + d + '" data-i="' + i + '">' + us.map(u => '<option' + (u === l.unit ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>' : '<input value="' + l.unit + '" disabled>') + '</div>' +
       '<div class="field"><label>Rate ₹/' + l.unit + '</label><input type="number" inputmode="decimal" step="any" value="' + esc(l.rate) + '" data-in="line" data-d="' + d + '" data-i="' + i + '" data-f="rate"></div></div>' +
@@ -351,13 +351,13 @@
     return '<div class="paper"><div class="ph"><div class="lg">' + logoHtml() + '</div><div><h2>' + esc(s.name) + '</h2>' +
       (s.tagline ? '<p><i>' + esc(s.tagline) + '</i></p>' : '') + (s.address ? '<p>' + esc(s.address) + '</p>' : '') +
       '<p>' + [s.phone ? 'Ph: ' + esc(s.phone) : '', s.email ? esc(s.email) : ''].filter(Boolean).join(' · ') + '</p></div></div>' +
-      '<div class="meta"><div><b>Bill ' + esc(inv.no) + '</b>' + (inv.void ? '<span class="stamp">CANCELLED</span>' : '') + '<br>' + fmtDate(inv.date) + '</div><div style="text-align:right"><b>' + esc(inv.customerName) + '</b>' + (inv.customerPhone ? '<br>' + esc(inv.customerPhone) : '') + '</div></div>' +
+      '<div class="meta"><div><b>Bill ' + esc(inv.no) + '</b>' + (inv.void ? '<span class="stamp">CANCELLED</span>' : '') + '<br>' + fmtDate(inv.date) + (inv.orderNo ? '<br><i>Pre-order ' + esc(inv.orderNo) + '</i>' : '') + '</div><div style="text-align:right"><b>' + esc(inv.customerName) + '</b>' + (inv.customerPhone ? '<br>' + esc(inv.customerPhone) : '') + '</div></div>' +
       '<table><tr><th>Item</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr>' +
       inv.lines.map(l => '<tr><td>' + esc(l.name) + '</td><td class="r">' + qf(l.qty) + ' ' + l.unit + '</td><td class="r">' + money(l.rate) + '</td><td class="r">' + money(l.amount) + '</td></tr>').join('') + '</table>' +
       '<div class="tot"><div><span>Subtotal</span><span>' + money(inv.subtotal) + '</span></div>' +
       (inv.discount ? '<div><span>Discount</span><span>-' + money(inv.discount) + '</span></div>' : '') +
       '<div class="g"><span>Total</span><span>' + money(inv.total) + '</span></div>' +
-      (inv.advanceUsed ? '<div><span>Advance adjusted</span><span>' + money(inv.advanceUsed) + '</span></div>' : '') +
+      (inv.advanceUsed ? '<div><span>Pre-order advance adjusted</span><span>' + money(inv.advanceUsed) + '</span></div>' : '') +
       '<div><span>Paid (' + esc(inv.method) + ')</span><span>' + money(inv.paid) + '</span></div>' +
       (Math.abs(inv.billBalance) > 0.005 ? '<div><b>' + (inv.billBalance > 0 ? 'Balance due' : 'Advance balance') + '</b><b>' + money(Math.abs(inv.billBalance)) + '</b></div>' : '') + '</div>' +
       (s.upi && inv.billBalance > 0.005 ? '<p style="margin-top:10px">Pay by UPI: <b>' + esc(s.upi) + '</b></p>' : '') +
@@ -366,7 +366,7 @@
   }
   function invText(inv) {
     const s = D.state.settings;
-    return '*' + s.name + '*\nBill ' + inv.no + ' · ' + fmtDate(inv.date) + '\nCustomer: ' + inv.customerName + '\n\n' +
+    return '*' + s.name + '*\nBill ' + inv.no + ' · ' + fmtDate(inv.date) + (inv.orderNo ? '\nPre-order: ' + inv.orderNo : '') + '\nCustomer: ' + inv.customerName + '\n\n' +
       inv.lines.map((l, i) => (i + 1) + '. ' + l.name + ' × ' + qf(l.qty) + ' ' + l.unit + ' = ' + money(l.amount)).join('\n') +
       '\n\n' + (inv.discount ? 'Discount: -' + money(inv.discount) + '\n' : '') + 'Total: ' + money(inv.total) + '\nPaid: ' + money(inv.paid) +
       (inv.billBalance > 0.005 ? '\nBalance due: ' + money(inv.billBalance) : '') + '\n\n' + s.footer;
@@ -384,7 +384,7 @@
     return top(s.name, s.tagline, { home: true }) + '<div class="page stagger">' +
       '<div class="hero"><small>Today\'s sales</small><div class="big" data-count="' + t.todaySales + '">' + money(t.todaySales) + '</div><div class="sub"><span>' + t.todayBills + ' bills</span><span>Profit ' + money(t.todayProfit) + '</span></div></div>' +
       '<div class="tiles">' + tile('bill', 'receipt', 'New Bill', 'gold') + tile('buyMenu', 'cart', 'Buy Stock') + tile('pack', 'pack', 'Pack Products') + tile('stock', 'box', 'Stock') +
-      tile('orders', 'clip', 'Orders', '', t.pendingOrders ? t.pendingOrders + ' pending' : '') + tile('invoices', 'receipt', 'All Bills') + tile('reports', 'chart', 'Reports') + tile('settings', 'gear', 'Settings') + '</div>' +
+      tile('orders', 'clip', 'Pre-orders', '', t.pendingOrders ? t.pendingOrders + ' waiting' : '') + tile('invoices', 'receipt', 'All Bills') + tile('reports', 'chart', 'Reports') + tile('settings', 'gear', 'Settings') + '</div>' +
       (start ? '<div class="card"><h3>How to start</h3>' +
         [['1', 'Buy Stock', 'Raw material first, then packaging', 'buyMenu'], ['2', 'Pack Products', 'Turn raw material into packets', 'pack'], ['3', 'New Bill', 'Sell and print the bill', 'bill']]
           .map(a => '<div class="row" data-act="goto" data-n="' + a[3] + '"><div class="ico gold">' + a[0] + '</div><div class="main"><div class="t">' + a[1] + '</div><div class="s">' + a[2] + '</div></div></div>').join('') + '</div>' : '') +
@@ -404,13 +404,19 @@
       const o = D.find('orders', p.orderId);
       S.bill = newBill({ customerId: o.customerId });
       S.bill.orderId = o.id;
-      S.bill.lines = o.lines.map(l => ({ itemId: l.itemId, qty: String(l.qty), unit: l.unit, rate: String(l.rate) }));
+      S.bill.unmatched = [];
+      o.lines.forEach(l => {
+        let it = l.itemId ? D.item(l.itemId) : null;
+        if (!it || it.archived) it = D.state.items.find(x => !x.archived && x.kind !== 'pack' && D.nk(x.name) === D.nk(l.name)) || null;
+        if (!it) return S.bill.unmatched.push(l.name + ' × ' + qf(l.qty) + ' ' + l.unit);
+        S.bill.lines.push({ itemId: it.id, qty: String(l.qty), unit: l.unit, rate: String(l.rate) });
+      });
     }
     if (p.customerId) { S.bill.customerId = p.customerId; }
     delete p.orderId; delete p.customerId;
     const b = S.bill, c = calcBill(b), ord = b.orderId ? D.find('orders', b.orderId) : null;
     return top('New Bill', ord ? 'Delivering order ' + ord.no : 'Type items, bill is ready', { act: b.lines.length ? 'billClear' : '', label: 'Clear' }) + '<div class="page">' +
-      '<div class="card"><h3>Customer</h3>' + (c.cust ?
+      (b.unmatched && b.unmatched.length ? '<div class="note red">Not packed yet, so not added: ' + b.unmatched.map(esc).join(', ') + '. Pack it first, then tap Add item.</div>' : '') + (ord ? '<div class="note green">Pre-order <b>' + esc(ord.no) + '</b>: advance ' + money(ord.advance) + ' already received.</div>' : '') + '<div class="card"><h3>Customer</h3>' + (c.cust ?
         '<div class="row" style="cursor:default"><div class="ico">' + esc(c.cust.name.slice(0, 1).toUpperCase()) + '</div><div class="main"><div class="t">' + esc(c.cust.name) + '</div><div class="s ' + balLabel('customers', c.cust.balance).c + '">' + balLabel('customers', c.cust.balance).t + '</div></div>' + (ord ? '' : '<button class="btn sm ghost" data-act="billCust">Change</button>') + '</div>' :
         '<div class="field"><label>Name (optional)</label><input placeholder="Walk-in customer" value="' + esc(b.walkName) + '" data-in="f" data-d="bill" data-f="walkName"></div><button class="btn ghost block" data-act="billCust">' + ic('user') + 'Choose saved customer (for due / advance)</button>') + '</div>' +
       '<div class="card"><h3>Items</h3><div id="lines">' + sellLines('bill') + '</div><button class="btn block" data-act="addLine" data-d="bill">' + ic('plus') + 'Add item</button></div>' +
@@ -473,6 +479,7 @@
   };
   /* ---------- BUY STOCK ---------- */
   const newBuyLine = (type, pre) => type === 'pack' ? { type: 'pack', rawName: pre || '', size: '', sizeUnit: '', pname: '', qty: '', total: '' } : { type: 'raw', name: pre || '', unit: 'kg', qty: '', rate: '' };
+  const newBuy = (t, mode) => ({ mode: mode || 'buy', lines: [newBuyLine(t || 'raw')], extras: [{ label: '', amt: '' }], paid: null, from: '', method: 'Cash', orderId: '', advance: 0, advancePaid: '', expected: '' });
   const lineTotal = l => l.type === 'raw' ? num(l.qty) * num(l.rate) : num(l.total);
   /* the unit a raw material is counted in: from saved stock, or from another line in this form */
   function rawUnitOf(name) {
@@ -484,8 +491,8 @@
   const smallUnit = u => ({ kg: 'g', g: 'g', litre: 'ml', ml: 'ml', pcs: 'pcs' }[u] || u);
   function calcBuy(b) {
     const sub = D.r2(D.sum(b.lines.map(lineTotal))), extra = D.r2(D.sum(b.extras.map(e => num(e.amt)))), total = D.r2(sub + extra);
-    const paid = b.paid === null ? sub : num(b.paid);
-    return { sub, extra, total, paid, bal: D.r2(sub - paid), n: b.lines.length };
+    const adv = b.advance || 0, paid = b.paid === null ? Math.max(D.r2(sub - adv), 0) : num(b.paid);
+    return { sub, extra, total, adv, paid, bal: D.r2(sub - adv - paid), n: b.lines.length };
   }
   function buyInfo(l, c) {
     const q = num(l.qty), t = lineTotal(l);
@@ -521,7 +528,8 @@
       '<div class="two">' + inp('qty', 'Pieces bought', '0') + inp('total', 'Total price ₹', '0') + '</div><div class="amt" data-out="info-' + i + '">' + buyInfo(l, c) + '</div></div>';
   }
   const buyLines = () => { const c = calcBuy(S.buy); return S.buy.lines.map((l, i) => buyLine(l, i, c)).join('') || '<div class="empty" style="padding:14px">Add what you bought.</div>'; };
-  const buyTotals = c => '<div class="r"><span>Items (to pay the seller)</span><b>' + money(c.sub) + '</b></div>' + (c.extra ? '<div class="r"><span>Extra costs (you paid yourself)</span><b>' + money(c.extra) + '</b></div><div class="r"><span>Real total cost</span><b>' + money(c.total) + '</b></div>' : '') +
+  const buyTotals = c => S.buy.mode === 'order' ? '<div class="r"><span>Order value (expected)</span><b>' + money(c.sub) + '</b></div><div class="r big"><span>Advance paid now</span><b>' + money(num(S.buy.advancePaid)) + '</b></div><div class="r"><span>Balance to pay on arrival</span><b>' + money(Math.max(D.r2(c.sub - num(S.buy.advancePaid)), 0)) + '</b></div>' :
+    '<div class="r"><span>Items (to pay the seller)</span><b>' + money(c.sub) + '</b></div>' + (c.adv ? '<div class="r"><span>Advance already paid</span><b>' + money(c.adv) + '</b></div>' : '') + (c.extra ? '<div class="r"><span>Extra costs (you paid yourself)</span><b>' + money(c.extra) + '</b></div><div class="r"><span>Real total cost</span><b>' + money(c.total) + '</b></div>' : '') +
     '<div class="r big"><span>Paid to seller</span><b>' + money(c.paid) + '</b></div>' +
     '<div class="r"><span>' + (c.bal < -0.005 ? 'Advance given to seller' : 'Still to pay the seller') + '</span><b>' + money(Math.abs(c.bal)) + '</b></div>';
   const extraRows = () => S.buy.extras.map((e, i) => '<div class="two" style="grid-template-columns:1.4fr 1fr auto;align-items:end"><div class="field"><label>' + (i ? 'What for' : 'What for (optional)') + '</label><input placeholder="Transport, food..." value="' + esc(e.label) + '" data-in="ex" data-i="' + i + '" data-f="label"></div><div class="field"><label>Amount ₹</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(e.amt) + '" data-in="ex" data-i="' + i + '" data-f="amt"></div>' + (S.buy.extras.length > 1 ? '<button class="x" style="position:static;margin-bottom:14px" data-act="exDel" data-i="' + i + '">×</button>' : '<span></span>') + '</div>').join('');
@@ -530,23 +538,26 @@
     '<div class="tiles"><button class="tile wide" data-act="buyStart" data-t="raw">' + ic('box') + '<span>Raw material<small>Dates, honey, oil, spices...</small></span></button>' +
     '<button class="tile wide gold" data-act="buyStart" data-t="pack">' + ic('pack') + '<span>Packaging material<small>Pouch, label, box, bottle...</small></span></button></div>' +
     '<div class="note">You can add more items in the same purchase on the next screen.</div>' +
-    '<button class="btn ghost block" style="margin-top:6px" data-act="goto" data-n="purchases">' + ic('cart') + 'Purchase history</button></div>';
+    '<button class="btn block" style="margin-top:6px" data-act="vorderNew">' + ic('truck') + 'Pre-order to a vendor (goods come later)</button><button class="btn ghost block" style="margin-top:8px" data-act="goto" data-n="purchases">' + ic('cart') + 'Purchase history</button></div>';
 
   SCREENS.buy = p => {
-    if (!S.buy) S.buy = { lines: [newBuyLine('raw')], extras: [{ label: '', amt: '' }], paid: null, from: '', method: 'Cash' };
+    if (!S.buy) S.buy = newBuy('raw');
     if (p.pre) { const it = D.item(p.pre), b = S.buy; if (it) { const l = it.kind === 'raw' ? newBuyLine('raw', it.name) : Object.assign(newBuyLine('pack', D.item(it.rawId).name), { size: String(it.size), sizeUnit: it.sizeUnit, pname: it.pname }); if (it.kind === 'raw') l.unit = it.unit; b.lines = [l]; } }
     delete p.pre;
     const b = S.buy, c = calcBuy(b);
-    return top('Buy Stock', 'Enter what you bought', { act: 'buyClear', label: 'Clear' }) + '<div class="page">' +
+    const ord = b.mode === 'order';
+    return top(ord ? 'Order to Vendor' : 'Buy Stock', ord ? 'Goods will arrive later' : (b.orderId ? 'Goods arrived from your pre-order' : 'Enter what you bought'), { act: 'buyClear', label: 'Clear' }) + '<div class="page">' +
       '<datalist id="rawnames">' + D.rawItems().map(r => '<option value="' + esc(r.name) + '">').join('') + '</datalist><datalist id="packnames">' + ['Pouch', 'Label', 'Box', 'Bottle', 'Jar', 'Lid', 'Sticker'].map(n => '<option value="' + n + '">').join('') + '</datalist>' +
-      '<div class="card"><h3>Items bought</h3><div id="lines">' + buyLines() + '</div>' +
+      '<div class="card"><h3>' + (ord ? 'Items you ordered' : 'Items bought') + '</h3><div id="lines">' + buyLines() + '</div>' +
       '<div class="btns"><button class="btn" data-act="buyAdd" data-t="raw">' + ic('plus') + 'Raw material</button><button class="btn gold" data-act="buyAdd" data-t="pack">' + ic('plus') + 'Packaging</button></div></div>' +
-      '<div class="card"><h3>Extra costs <small>transport, food...</small></h3><div id="extras">' + extraRows() + '</div><button class="btn sm ghost" data-act="exAdd">' + ic('plus') + 'Add another cost</button><div class="hint" style="margin:8px 0 14px">You paid these yourself, so they are not added to the seller\'s bill. They are shared across the items by price, so every item shows its real cost. Add as many as you like, the total is calculated for you.</div></div><div class="card">' +
+      (ord ? '<div class="card"><div class="field"><label>Vendor name</label><input list="places" placeholder="Who will supply?" value="' + esc(b.from) + '" data-in="f" data-d="buy" data-f="from"><datalist id="places">' + D.places().map(n => '<option value="' + esc(n) + '">').join('') + '</datalist></div>' +
+      '<div class="two"><div class="field"><label>Advance paid now (₹)</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(b.advancePaid) + '" data-in="f" data-d="buy" data-f="advancePaid"></div><div class="field"><label>Expected on</label><input type="date" value="' + esc(b.expected) + '" data-in="f" data-d="buy" data-f="expected"></div></div>' +
+      '<div class="field" style="margin-bottom:0"><label>Advance paid by</label>' + methodSeg('buy', b.method) + '</div></div>' : '<div class="card"><h3>Extra costs <small>transport, food...</small></h3><div id="extras">' + extraRows() + '</div><button class="btn sm ghost" data-act="exAdd">' + ic('plus') + 'Add another cost</button><div class="hint" style="margin:8px 0 14px">You paid these yourself, so they are not added to the seller\'s bill. They are shared across the items by price, so every item shows its real cost. Add as many as you like, the total is calculated for you.</div></div><div class="card">' +
       '<div class="field"><label>Bought from (optional)</label><input list="places" placeholder="Leave empty for market / cash" value="' + esc(b.from) + '" data-in="f" data-d="buy" data-f="from"><datalist id="places">' + D.places().map(n => '<option value="' + esc(n) + '">').join('') + '</datalist><div class="hint">Type a name only if you keep a due or advance with them.</div></div>' +
-      '<div class="field"><label>Paid to the seller now (₹)</label><input id="paidIn" type="number" inputmode="decimal" value="' + (b.paid === null ? c.sub : esc(b.paid)) + '" data-in="f" data-d="buy" data-f="paid"></div>' +
+      '<div class="field"><label>Paid to the seller now (₹)</label><input id="paidIn" type="number" inputmode="decimal" value="' + (b.paid === null ? c.paid : esc(b.paid)) + '" data-in="f" data-d="buy" data-f="paid"></div>' +
       '<div class="btns" style="margin:-4px 0 12px"><button class="btn sm ghost" data-act="buyPaidFull">Full amount</button><button class="btn sm ghost" data-act="buyPaidNone">Nothing (pay later)</button></div>' +
-      '<div class="field" style="margin-bottom:0"><label>Paid by</label>' + methodSeg('buy', b.method) + '</div></div>' +
-      '<div class="tbox" id="utot">' + buyTotals(c) + '</div><div class="sticky-save"><button class="btn primary block" data-act="buySave">Save purchase</button></div></div>';
+      '<div class="field" style="margin-bottom:0"><label>Paid by</label>' + methodSeg('buy', b.method) + '</div></div>') +
+      '<div class="tbox" id="utot">' + buyTotals(c) + '</div><div class="sticky-save"><button class="btn primary block" data-act="buySave">' + (ord ? 'Save order' : 'Save purchase') + '</button></div></div>';
   };
 
   SCREENS.purchases = () => top('Purchase History', D.state.purchases.length + ' entries') + '<div class="page"><div class="card">' +
@@ -605,18 +616,26 @@
     return { total, adv: num(o.advance), bal: D.r2(total - num(o.advance)) };
   }
   const orderTotals = () => { const c = calcOrder(S.order); return '<div class="r big" style="border:0;margin:0;padding-top:0"><span>Order total</span><b>' + money(c.total) + '</b></div><div class="r"><span>Advance received</span><b>' + money(c.adv) + '</b></div><div class="r"><span>Balance on delivery</span><b>' + money(c.bal) + '</b></div>'; };
+  const waiting = o => o.lines.some(l => { const it = l.itemId ? D.item(l.itemId) : null; return !it || it.stock + 1e-9 < D.conv(l.qty, l.unit, it.unit); });
   SCREENS.orders = () => {
-    const f = S.flt.orders;
-    const l = D.state.orders.filter(o => o.status === f).sort((a, b) => b.ts - a.ts);
-    return top('Advance Orders', 'Orders taken with advance', { act: 'orderNew', label: '+ New' }) + '<div class="page"><div class="seg">' + [['pending', 'Pending'], ['delivered', 'Delivered'], ['cancelled', 'Cancelled']].map(a => '<button class="' + (f === a[0] ? 'on' : '') + '" data-act="fltOrders" data-v="' + a[0] + '">' + a[1] + '</button>').join('') + '</div><div class="card">' +
-      (l.map(o => '<div class="row" data-act="orderOpen" data-id="' + o.id + '"><div class="ico gold">' + ic('clip') + '</div><div class="main"><div class="t">' + esc(o.customerName) + '</div><div class="s">' + o.no + (o.deliveryDate ? ' · Deliver ' + fmtDate(o.deliveryDate) : '') + '</div></div><div class="end"><b>' + money(o.total) + '</b>' + (o.advance ? '<span class="pill">Advance ' + money(o.advance) + '</span>' : '') + '</div></div>').join('') || empty('clip', 'No ' + f + ' orders', f === 'pending' ? 'Tap "+ New" to take an order with advance.' : '')) + '</div></div>';
+    const f = S.flt.orders, k = S.flt.ordk, cu = k === 'customers';
+    const l = D.state[cu ? 'orders' : 'vorders'].filter(o => o.status === f).sort((a, b) => b.ts - a.ts);
+    const sts = cu ? [['pending', 'Waiting'], ['delivered', 'Delivered'], ['cancelled', 'Cancelled']] : [['pending', 'Waiting'], ['received', 'Received'], ['cancelled', 'Cancelled']];
+    const fx = sts.some(a => a[0] === f) ? f : 'pending';
+    return top('Pre-orders', cu ? 'Customer paid first, you deliver later' : 'You paid first, vendor delivers later', { act: 'orderNew', label: '+ New' }) + '<div class="page">' +
+      '<div class="seg">' + [['customers', 'From customers'], ['vendors', 'To vendors']].map(a => '<button class="' + (k === a[0] ? 'on' : '') + '" data-act="fltOrdK" data-v="' + a[0] + '">' + a[1] + '</button>').join('') + '</div>' +
+      '<div class="seg">' + sts.map(a => '<button class="' + (fx === a[0] ? 'on' : '') + '" data-act="fltOrders" data-v="' + a[0] + '">' + a[1] + '</button>').join('') + '</div><div class="card">' +
+      (l.filter(o => o.status === fx).map(o => cu ?
+        '<div class="row" data-act="orderOpen" data-id="' + o.id + '"><div class="ico gold">' + ic('clip') + '</div><div class="main"><div class="t">' + esc(o.customerName) + '</div><div class="s">' + o.no + (o.deliveryDate ? ' · Deliver ' + fmtDate(o.deliveryDate) : '') + '</div></div><div class="end"><b>' + money(o.total) + '</b>' + (o.advance ? '<span class="pill">Advance ' + money(o.advance) + '</span>' : '') + (o.status === 'pending' && waiting(o) ? '<span class="pill warn">Stock not ready</span>' : '') + '</div></div>' :
+        '<div class="row" data-act="vorderOpen" data-id="' + o.id + '"><div class="ico gold">' + ic('truck') + '</div><div class="main"><div class="t">' + esc(o.vendorName) + '</div><div class="s">' + o.no + (o.expectedDate ? ' · Expected ' + fmtDate(o.expectedDate) : '') + '</div></div><div class="end"><b>' + money(o.total) + '</b>' + (o.advance ? '<span class="pill">Advance paid ' + money(o.advance) + '</span>' : '') + '</div></div>').join('') ||
+        empty('clip', 'Nothing here', 'Tap "+ New" to add a pre-order.')) + '</div></div>';
   };
   SCREENS.orderNew = () => {
     if (!S.order) S.order = { customerId: '', lines: [], deliveryDate: '', advance: '', method: 'Cash', note: '' };
     const o = S.order, cust = o.customerId ? D.find('customers', o.customerId) : null;
     return top('New Order', 'Customer pays advance, you deliver later') + '<div class="page">' +
       '<div class="card"><h3>Customer</h3><div class="row" data-act="orderCust"><div class="ico">' + (cust ? esc(cust.name.slice(0, 1).toUpperCase()) : ic('user')) + '</div><div class="main"><div class="t">' + (cust ? esc(cust.name) : 'Choose customer') + '</div><div class="s">' + (cust ? esc(cust.phone) : 'Required') + '</div></div><span class="lnk">' + (cust ? 'Change' : 'Choose') + '</span></div></div>' +
-      '<div class="card"><h3>Items ordered</h3><div id="lines">' + sellLines('order') + '</div><button class="btn block" data-act="addLine" data-d="order">' + ic('plus') + 'Add item</button></div>' +
+      '<div class="card"><h3>Items ordered</h3><div id="lines">' + sellLines('order') + '</div><div class="btns"><button class="btn" data-act="addLine" data-d="order">' + ic('plus') + 'From stock</button><button class="btn gold" data-act="ordFree">' + ic('plus') + 'Not in stock yet</button></div></div>' +
       '<div class="card"><div class="two"><div class="field"><label>Advance received (₹)</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(o.advance) + '" data-in="f" data-d="order" data-f="advance"></div><div class="field"><label>Delivery date</label><input type="date" value="' + esc(o.deliveryDate) + '" data-in="f" data-d="order" data-f="deliveryDate"></div></div>' +
       '<div class="field" style="margin-bottom:0"><label>Advance paid by</label>' + methodSeg('order', o.method) + '</div></div>' +
       '<div class="tbox" id="otot">' + orderTotals() + '</div><div class="sticky-save"><button class="btn primary block" data-act="orderSave">Save order</button></div></div>';
@@ -651,7 +670,7 @@
 
   /* ---------- MORE / REPORTS / SETTINGS ---------- */
   SCREENS.more = () => top('More', 'Everything else') + '<div class="page"><div class="card">' +
-    [['cart', 'gold', 'Buy Stock', 'Raw material and packaging', 'buyMenu'], ['pack', 'blue', 'Pack Products', 'Turn raw material into packets', 'pack'], ['clip', 'gold', 'Advance orders', 'Orders with advance payment', 'orders'], ['receipt', '', 'All bills', 'Search old bills', 'invoices'], ['cart', '', 'Purchase history', 'What you bought before', 'purchases'], ['clip', '', 'Packing history', 'What you packed before', 'packings'], ['chart', '', 'Reports', 'Sales, profit, cash', 'reports'], ['gear', '', 'Settings & backup', 'Logo, address, backup', 'settings']]
+    [['cart', 'gold', 'Buy Stock', 'Raw material and packaging', 'buyMenu'], ['pack', 'blue', 'Pack Products', 'Turn raw material into packets', 'pack'], ['clip', 'gold', 'Pre-orders', 'Customer and vendor orders with advance', 'orders'], ['receipt', '', 'All bills', 'Search old bills', 'invoices'], ['cart', '', 'Purchase history', 'What you bought before', 'purchases'], ['clip', '', 'Packing history', 'What you packed before', 'packings'], ['chart', '', 'Reports', 'Sales, profit, cash', 'reports'], ['gear', '', 'Settings & backup', 'Logo, address, backup', 'settings']]
       .map(a => '<div class="row" data-act="goto" data-n="' + a[4] + '"><div class="ico ' + a[1] + '">' + ic(a[0]) + '</div><div class="main"><div class="t">' + a[2] + '</div><div class="s">' + a[3] + '</div></div></div>').join('') + '</div></div>';
 
   function range(f) {
@@ -697,7 +716,7 @@
       const c = calcBuy(S.buy);
       e.innerHTML = buyTotals(c);
       S.buy.lines.forEach((l, i) => { const o = $('[data-out="info-' + i + '"]'); if (o) o.innerHTML = buyInfo(l, c); });
-      const pi = $('#paidIn'); if (pi && S.buy.paid === null && document.activeElement !== pi) pi.value = c.sub;
+      const pi = $('#paidIn'); if (pi && S.buy.paid === null && document.activeElement !== pi) pi.value = c.paid;
     },
     pack() {
       const e = $('#ptot'); if (!e) return;
@@ -792,7 +811,7 @@
     buyStart(el) {
       const t = el.dataset.t;
       if (t === 'pack' && !D.rawItems().length) return toast('First buy a raw material, then its packaging', 1);
-      S.buy = { lines: [newBuyLine(t)], extras: [{ label: '', amt: '' }], paid: null, from: '', method: 'Cash' };
+      S.buy = newBuy(t);
       go('buy');
     },
     buyMore(el) { S.buy = null; go('buy', { pre: el.dataset.id }); },
@@ -809,8 +828,14 @@
     buyPaidNone() { S.buy.paid = '0'; draw(true); },
     buySave() {
       const b = S.buy, c = calcBuy(b);
+      const mapped = b.lines.map(l => l.type === 'raw' ? { type: 'raw', name: l.name, unit: l.unit, qty: num(l.qty), rate: num(l.rate), total: D.r2(num(l.qty) * num(l.rate)) } :
+        { type: 'pack', rawName: l.rawName, size: num(l.size), sizeUnit: l.sizeUnit, pname: l.pname, qty: num(l.qty), total: num(l.total) });
+      if (b.mode === 'order') {
+        try { D.vendorOrder({ vendor: b.from, lines: mapped, advance: num(b.advancePaid), method: b.method, expectedDate: b.expected }); S.buy = null; S.flt.ordk = 'vendors'; S.flt.orders = 'pending'; toast('Order saved'); go('orders', {}, true); } catch (e) { toast(e.message, 1); }
+        return;
+      }
       try {
-        const pu = D.purchase({
+        const pu = D.purchase({ orderId: b.orderId,
           from: b.from, extra: c.extra, extras: b.extras.map(e => ({ label: e.label, amount: num(e.amt) })), paid: c.paid, method: b.method,
           lines: b.lines.map(l => l.type === 'raw' ? { type: 'raw', name: l.name, unit: l.unit, qty: num(l.qty), total: D.r2(num(l.qty) * num(l.rate)) } :
             { type: 'pack', rawName: l.rawName, size: num(l.size), sizeUnit: l.sizeUnit, pname: l.pname, qty: num(l.qty), total: num(l.total) })
@@ -857,7 +882,42 @@
       if (!ok) return; try { D.undoBatch(id); toast('Packing undone'); draw(true); } catch (e) { toast(e.message, 1); }
     },
     /* orders */
-    orderNew() { S.order = null; go('orderNew'); },
+    vorderNew() { S.buy = newBuy('raw', 'order'); go('buy'); },
+    fltOrdK(el) { S.flt.ordk = el.dataset.v; S.flt.orders = 'pending'; draw(true); },
+    orderNew() { if (S.flt.ordk === 'vendors') { S.buy = newBuy('raw', 'order'); go('buy'); } else { S.order = null; go('orderNew'); } },
+    vorderOpen(el) {
+      const o = D.find('vorders', el.dataset.id);
+      openSheet('<h2>' + o.no + ' · ' + esc(o.vendorName) + '</h2><p class="mut" style="margin-bottom:8px">Ordered ' + fmtDate(o.date) + (o.expectedDate ? ' · Expected ' + fmtDate(o.expectedDate) : '') + '</p><div class="card" style="padding:8px 12px">' +
+        o.lines.map(l => '<div class="kv"><span>' + esc(l.type === 'pack' ? l.rawName + ' ' + l.size + ' ' + l.sizeUnit + ' ' + (l.pname || 'Packet') : l.name) + ' × ' + qf(l.qty) + (l.type === 'pack' ? ' pcs' : ' ' + l.unit) + '</span><b>' + (lineTotal(l) ? money(D.r2(lineTotal(l))) : '') + '</b></div>').join('') +
+        '<div class="kv"><span>Advance paid</span><b>' + money(o.advance) + '</b></div></div>' +
+        (o.status === 'pending' ? '<div class="btns"><button class="btn danger" data-act="vorderCancel" data-id="' + o.id + '">Cancel</button><button class="btn primary" data-act="vorderReceive" data-id="' + o.id + '">Goods arrived</button></div>' : '') +
+        (o.status !== 'received' ? '<button class="btn ghost block" style="margin-top:10px" data-act="vorderDel" data-id="' + o.id + '">Delete this order</button>' : '<p class="mut" style="font-size:13px">Received. To remove it, delete its purchase first.</p>'));
+    },
+    vorderReceive(el) {
+      const o = D.find('vorders', el.dataset.id); closeSheet();
+      const b = newBuy('raw');
+      b.lines = o.lines.map(l => l.type === 'pack' ? { type: 'pack', rawName: l.rawName, size: String(l.size), sizeUnit: l.sizeUnit, pname: l.pname || '', qty: String(l.qty), total: l.total ? String(l.total) : '' } : { type: 'raw', name: l.name, unit: l.unit, qty: String(l.qty), rate: l.rate ? String(l.rate) : (l.total && l.qty ? String(D.r2(l.total / l.qty)) : '') });
+      b.from = o.vendorName; b.orderId = o.id; b.advance = o.advance; b.method = o.method;
+      S.buy = b; go('buy');
+    },
+    async vorderCancel(el) {
+      const o = D.find('vorders', el.dataset.id); closeSheet();
+      const ok = await confirmSheet({ title: 'Cancel this order?', text: o.advance ? 'The advance of ' + money(o.advance) + ' will be shown as returned in the vendor account.' : 'This order will be cancelled.', ok: 'Cancel order', danger: true });
+      if (!ok) return; try { D.cancelVendorOrder(o.id); toast('Order cancelled'); draw(true); } catch (e) { toast(e.message, 1); }
+    },
+    async vorderDel(el) {
+      const id = el.dataset.id; closeSheet();
+      const ok = await confirmSheet({ title: 'Delete this order?', text: 'It disappears completely, and the advance entry is removed from the vendor account.', ok: 'Delete', danger: true });
+      if (!ok) return; try { D.deleteVendorOrder(id); toast('Order deleted'); draw(true); } catch (e) { toast(e.message, 1); }
+    },
+    ordFree() {
+      openSheet('<h2>Item not in stock yet</h2><div class="field"><label>Name</label><input id="of-n" placeholder="e.g. Ajwa Dates 1 kg"></div><div class="three"><div class="field"><label>Qty</label><input id="of-q" type="number" inputmode="decimal" value="1"></div><div class="field"><label>Unit</label><select id="of-u">' + D.UNITS.map(u => '<option>' + u + '</option>').join('') + '</select></div><div class="field"><label>Rate ₹</label><input id="of-r" type="number" inputmode="decimal"></div></div><button class="btn primary block" data-act="ordFreeAdd">Add</button>');
+    },
+    ordFreeAdd() {
+      const n = D.clean($('#of-n').value); if (!n) return toast('Type the item name', 1);
+      S.order.lines.push({ itemId: '', name: n, qty: $('#of-q').value || '1', unit: $('#of-u').value, rate: $('#of-r').value });
+      closeSheet(); $('#lines').innerHTML = sellLines('order'); UPD.order();
+    },
     orderCust() { pickPerson('customers', id => { S.order.customerId = id; draw(true); }); },
     orderSave() {
       const o = S.order;
@@ -994,8 +1054,8 @@
     if (ch === 'unit') {
       const d = t.dataset.d, l = S[d].lines[+t.dataset.i];
       if (d !== 'buy') {
-        const it = D.item(l.itemId);
-        l.rate = it.price ? String(+(it.price * D.conv(1, t.value, it.unit)).toPrecision(6)) : l.rate;
+        const it = l.itemId ? D.item(l.itemId) : null;
+        if (it) l.rate = it.price ? String(+(it.price * D.conv(1, t.value, it.unit)).toPrecision(6)) : l.rate;
       }
       l.unit = t.value;
       $('#lines').innerHTML = LINES[d](); UPD[d]();
