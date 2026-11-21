@@ -171,3 +171,14 @@ h1,h2,h3,p{margin:0}
   .paper{box-shadow:none;border-radius:0}
 }
 #printArea{display:none}
+
+/* ---- v2: big home tiles ---- */
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
+.tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:104px;padding:16px 10px;border:0;border-radius:18px;color:#fff;font:700 15px/1.2 inherit;font-family:inherit;text-align:center;cursor:pointer;background:linear-gradient(135deg,#0e5a40,#1f8a5b);box-shadow:0 6px 16px rgba(14,90,64,.28);transition:transform .12s}
+.tile:active{transform:scale(.96)}
+.tile svg{width:34px;height:34px}
+.tile small{display:block;font-weight:500;font-size:12px;opacity:.85;margin-top:2px}
+.tile.gold{background:linear-gradient(135deg,#b88a1c,#d4a437);color:#1a1300;box-shadow:0 6px 16px rgba(184,138,28,.3)}
+.tile.wide{grid-column:span 2;flex-direction:row;justify-content:flex-start;text-align:left;gap:16px;min-height:96px;padding:18px;font-size:18px}
+.tile.wide svg{width:42px;height:42px;flex:none}
+.tile.wide small{font-size:13px}

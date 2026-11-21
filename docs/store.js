@@ -1,20 +1,30 @@
-/* ECOLaver Business - core logic (no screen code here).
-   All data is kept on the phone in localStorage. */
+/* ECOLaver Business - core logic v2 (no screen code here).
+   All data is kept on the phone in localStorage.
+
+   Items:
+   - raw      : raw material (dates, honey...). Created automatically when you buy it.
+   - pack     : packaging for ONE raw material and ONE pack size (e.g. Dates 500 g Pouch).
+   - product  : packed product (e.g. Dates 500 g). Created automatically when you pack. */
 (function (root) {
   'use strict';
 
-  const KEY = 'ecolaver_biz_v1';
+  const KEY = 'ecolaver_biz_v2';
+  const OLD_KEY = 'ecolaver_biz_v1';
   const UNITS = ['kg', 'g', 'litre', 'ml', 'pcs'];
   const COMPAT = { kg: ['kg', 'g'], g: ['g', 'kg'], litre: ['litre', 'ml'], ml: ['ml', 'litre'], pcs: ['pcs'] };
   const FACT = { kg: { g: 1000 }, g: { kg: 0.001 }, litre: { ml: 1000 }, ml: { litre: 0.001 } };
+  const MARKET = 'Market (Cash)';
 
   const pad = (n, l = 2) => String(n).padStart(l, '0');
   const r2 = x => Math.round((+x + Number.EPSILON) * 100) / 100;
   const r3 = x => Math.round((+x + Number.EPSILON) * 1000) / 1000;
+  const r4 = x => Math.round((+x + Number.EPSILON) * 10000) / 10000;
   const sum = a => a.reduce((s, v) => s + (+v || 0), 0);
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const localDate = (d = new Date()) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   const today = () => localDate();
+  const clean = s => String(s || '').trim().replace(/\s+/g, ' ');
+  const nk = s => clean(s).toLowerCase();
 
   function conv(q, from, to) {
     if (from === to) return q;
@@ -34,7 +44,7 @@
 
   function fresh() {
     return {
-      v: 1,
+      v: 2,
       settings: {
         name: 'ECOLaver', tagline: 'Choose nature, live better', address: '', phone: '', email: '',
         upi: '', logo: '', invoicePrefix: 'EL-', footer: 'Thank you for choosing nature!', lowDefault: 5
@@ -46,16 +56,32 @@
 
   let state = fresh();
   let lastError = '';
+  let notice = '';
+
+  function adopt(d) {
+    const f = fresh();
+    state = Object.assign(f, d);
+    state.settings = Object.assign(f.settings, d.settings || {});
+    state.counters = Object.assign(f.counters, d.counters || {});
+    state.v = 2;
+  }
 
   function load() {
     try {
-      const raw = root.localStorage && root.localStorage.getItem(KEY);
-      if (raw) {
-        const d = JSON.parse(raw);
-        const f = fresh();
-        state = Object.assign(f, d);
-        state.settings = Object.assign(f.settings, d.settings || {});
-        state.counters = Object.assign(f.counters, d.counters || {});
+      const ls = root.localStorage;
+      const raw = ls && ls.getItem(KEY);
+      if (raw) adopt(JSON.parse(raw));
+      else {
+        const old = ls && ls.getItem(OLD_KEY);
+        if (old) {
+          // Old (v1) test data is cleared on purpose. Only the company details are kept.
+          const od = JSON.parse(old);
+          state = fresh();
+          state.settings = Object.assign(state.settings, od.settings || {});
+          ls.removeItem(OLD_KEY);
+          save();
+          notice = 'Old test data was cleared. Your company details are kept.';
+        }
       }
     } catch (e) { lastError = 'Could not read saved data: ' + e.message; state = fresh(); }
     return state;
@@ -77,9 +103,20 @@
     p.balance = r2(p.balance + amt);
     p.ledger.push({ id: uid(), date: date || today(), ts: Date.now(), type, desc, amt, bal: p.balance, ref: ref || '', method: method || '' });
   }
+  function rebuildLedger(p) {
+    let b = 0;
+    p.ledger.forEach(e => { b = r2(b + e.amt); e.bal = b; });
+    p.balance = b;
+  }
+  function dropLedgerRef(list, personId, ref) {
+    const p = personId ? find(list, personId) : null;
+    if (!p) return;
+    p.ledger = p.ledger.filter(e => e.ref !== ref);
+    rebuildLedger(p);
+  }
 
   function addPerson(kind, d) {
-    const name = (d.name || '').trim();
+    const name = clean(d.name);
     if (!name) throw new Error('Please enter a name');
     const p = { id: uid(), name, phone: (d.phone || '').trim(), address: (d.address || '').trim(), balance: 0, ledger: [], created: today(), archived: false };
     state[kind].push(p);
@@ -92,7 +129,7 @@
   function updatePerson(kind, id, d) {
     const p = find(kind, id);
     if (!p) throw new Error('Not found');
-    const name = (d.name || '').trim();
+    const name = clean(d.name);
     if (!name) throw new Error('Please enter a name');
     p.name = name; p.phone = (d.phone || '').trim(); p.address = (d.address || '').trim();
     save();
@@ -102,7 +139,10 @@
   function removePerson(kind, id) {
     const p = find(kind, id);
     if (!p) return;
-    if (p.ledger.length === 0) state[kind] = state[kind].filter(x => x.id !== id);
+    const used = kind === 'customers'
+      ? (state.invoices.some(i => i.customerId === id) || state.orders.some(o => o.customerId === id))
+      : state.purchases.some(x => x.vendorId === id);
+    if (!used) state[kind] = state[kind].filter(x => x.id !== id);
     else p.archived = true;
     save();
   }
@@ -119,65 +159,41 @@
     return p;
   }
 
-  /* ---------- items ---------- */
-  function addItem(d) {
-    const name = (d.name || '').trim();
-    if (!name) throw new Error('Please enter a name');
-    if (state.items.some(i => !i.archived && i.name.toLowerCase() === name.toLowerCase())) throw new Error('This name already exists');
-    const kind = ['raw', 'pack', 'product'].includes(d.kind) ? d.kind : 'raw';
-    const unit = UNITS.includes(d.unit) ? d.unit : 'pcs';
-    const it = {
-      id: uid(), name, kind, unit, stock: r3(+d.stock || 0), cost: +d.cost || 0, price: +d.price || 0,
-      low: +d.low || 0, recipe: kind === 'product' ? { lines: [], other: 0, margin: 30 } : null, archived: false
-    };
-    state.items.push(it);
+  function deleteLedgerEntry(kind, personId, entryId) {
+    const p = find(kind, personId);
+    if (!p) throw new Error('Not found');
+    const e = p.ledger.find(x => x.id === entryId);
+    if (!e) throw new Error('Not found');
+    if (!['opening', 'payment', 'advance'].includes(e.type) || e.ref) throw new Error('This entry belongs to a bill, order or purchase. Delete that instead.');
+    p.ledger = p.ledger.filter(x => x.id !== entryId);
+    rebuildLedger(p);
     save();
-    return it;
   }
+
+  /* ---------- items ---------- */
+  const sizeLabel = (size, unit) => qtyFmt(size) + ' ' + unit;
+  const packName = (raw, label, pname) => raw.name + ' ' + label + ' ' + (clean(pname) || 'Packet');
+  const productName = (raw, label) => raw.name + ' ' + label;
+  const rawItems = () => state.items.filter(i => !i.archived && i.kind === 'raw');
+  const findRaw = name => rawItems().find(i => nk(i.name) === nk(name));
 
   function updateItem(id, d) {
     const it = item(id);
     if (!it) throw new Error('Not found');
-    const name = (d.name || '').trim();
-    if (!name) throw new Error('Please enter a name');
-    if (state.items.some(i => i.id !== id && !i.archived && i.name.toLowerCase() === name.toLowerCase())) throw new Error('This name already exists');
-    it.name = name; it.price = +d.price || 0; it.low = +d.low || 0;
+    if (it.kind === 'raw') {
+      const name = clean(d.name);
+      if (!name) throw new Error('Please enter a name');
+      if (state.items.some(i => i.id !== id && !i.archived && i.kind === 'raw' && nk(i.name) === nk(name))) throw new Error('This name already exists');
+      it.name = name;
+      state.items.filter(i => i.rawId === id).forEach(i => {
+        i.name = i.kind === 'pack' ? packName(it, i.label, i.pname) : productName(it, i.label);
+      });
+    }
+    it.price = +d.price || 0;
+    it.low = +d.low || 0;
     save();
     return it;
   }
-
-  function archiveItem(id, flag) { const it = item(id); if (it) { it.archived = flag !== false; save(); } }
-
-  function recipeCost(p) {
-    const rc = p.recipe || { lines: [], other: 0 };
-    const lines = [];
-    rc.lines.forEach(l => {
-      const it = item(l.itemId);
-      if (!it) return;
-      const base = conv(+l.qty || 0, l.unit || it.unit, it.unit);
-      lines.push({ itemId: it.id, item: it, qty: +l.qty || 0, unit: l.unit || it.unit, qtyBase: base, cost: r2(base * it.cost) });
-    });
-    const other = +rc.other || 0;
-    return { lines, other, total: r2(sum(lines.map(l => l.cost)) + other) };
-  }
-
-  function setRecipe(id, recipe) {
-    const p = item(id);
-    if (!p || p.kind !== 'product') throw new Error('Not a product');
-    p.recipe = {
-      lines: (recipe.lines || []).filter(l => l.itemId && +l.qty > 0).map(l => ({ itemId: l.itemId, qty: +l.qty, unit: l.unit })),
-      other: +recipe.other || 0,
-      margin: recipe.margin === '' || recipe.margin == null ? 30 : +recipe.margin
-    };
-    save();
-    return p;
-  }
-
-  const suggestPrice = p => {
-    const rc = recipeCost(p);
-    const m = p.recipe ? +p.recipe.margin || 0 : 0;
-    return Math.ceil(rc.total * (1 + m / 100));
-  };
 
   function stockAdjust(id, newStock, reason) {
     const it = item(id);
@@ -191,30 +207,126 @@
     return delta;
   }
 
-  /* ---------- buying stock ---------- */
+  function hasHistory(ids) {
+    const has = x => ids.includes(x);
+    return state.purchases.some(p => p.lines.some(l => has(l.itemId))) ||
+      state.invoices.some(i => i.lines.some(l => has(l.itemId))) ||
+      state.orders.some(o => o.lines.some(l => has(l.itemId))) ||
+      state.batches.some(b => has(b.rawId) || (b.packUsed || []).some(u => has(u.itemId)) || (b.entries || []).some(e => has(e.productId))) ||
+      state.adjustments.some(a => has(a.itemId));
+  }
+
+  /* After undoing something: drop items that were created by it and have no other history. */
+  function prune(ids) {
+    ids.forEach(id => {
+      const it = item(id);
+      if (!it || it.stock !== 0 && Math.abs(it.stock) > 1e-9) return;
+      if (state.items.some(i => i.rawId === id)) return;
+      if (!hasHistory([id])) state.items = state.items.filter(i => i.id !== id);
+    });
+  }
+
+  /* Remove an item. A raw material takes its packaging and products with it.
+     Items without any history are deleted; the others are hidden so old bills stay correct. */
+  function removeItem(id) {
+    const it = item(id);
+    if (!it) return;
+    const ids = [id].concat(it.kind === 'raw' ? state.items.filter(i => i.rawId === id).map(i => i.id) : []);
+    if (hasHistory(ids)) state.items.forEach(i => { if (ids.includes(i.id)) i.archived = true; });
+    else state.items = state.items.filter(i => !ids.includes(i.id));
+    save();
+  }
+
+  /* ---------- buying stock ----------
+     lines: { type:'raw', name, unit, qty, total }
+            { type:'pack', rawName, size, sizeUnit, pname, qty, total }
+     The extra cost (transport, food...) is shared by the price of every line. */
+  function places() {
+    const set = {};
+    state.vendors.filter(v => !v.archived).forEach(v => { set[nk(v.name)] = v.name; });
+    state.purchases.forEach(p => { if (p.vendorName && p.vendorName !== MARKET) set[nk(p.vendorName)] = p.vendorName; });
+    return Object.keys(set).map(k => set[k]).sort((a, b) => a.localeCompare(b));
+  }
+
   function purchase(d) {
-    const lines = (d.lines || []).filter(l => l.itemId && +l.qty > 0);
-    if (!lines.length) throw new Error('Add at least one item');
-    const sub = sum(lines.map(l => l.total));
-    const extra = +d.extra || 0;
+    const raw = (d.lines || []).filter(l => +l.qty > 0 || clean(l.name) || clean(l.rawName));
+    if (!raw.length) throw new Error('Add at least one item');
+    const newRaws = {};
+    const plan = raw.map((l, i) => {
+      const n = i + 1, qty = +l.qty, total = +l.total || 0;
+      if (!(qty > 0)) throw new Error('Item ' + n + ': enter the quantity');
+      if (total < 0) throw new Error('Item ' + n + ': price cannot be negative');
+      if (l.type === 'pack') {
+        const rawName = clean(l.rawName);
+        if (!rawName) throw new Error('Item ' + n + ': choose the raw material this packaging is for');
+        const size = +l.size;
+        if (!(size > 0)) throw new Error('Item ' + n + ': enter the pack size, like 500 g');
+        const ex = findRaw(rawName), pend = newRaws[nk(rawName)];
+        const ru = ex ? ex.unit : (pend ? pend.unit : '');
+        if (!ru) throw new Error('Item ' + n + ': buy the raw material "' + rawName + '" first');
+        let key;
+        try { key = r3(conv(size, l.sizeUnit || ru, ru)); } catch (e) { throw new Error('Item ' + n + ': pack size must be in ' + compat(ru).join(' or ')); }
+        if (!(key > 0)) throw new Error('Item ' + n + ': pack size is too small');
+        return { type: 'pack', rawName: ex ? ex.name : pend.name, rawKey: nk(rawName), size, sizeUnit: l.sizeUnit || ru, key, pname: clean(l.pname), qty, total };
+      }
+      const name = clean(l.name);
+      if (!name) throw new Error('Item ' + n + ': enter the name');
+      const unit = UNITS.includes(l.unit) ? l.unit : '';
+      if (!unit) throw new Error('Item ' + n + ': choose the unit');
+      const ex = findRaw(name), pend = newRaws[nk(name)];
+      const base = ex ? ex.unit : (pend ? pend.unit : unit);
+      try { conv(1, unit, base); } catch (e) { throw new Error('Item ' + n + ': "' + (ex ? ex.name : name) + '" is counted in ' + compat(base).join(' or ')); }
+      if (!ex && !pend) newRaws[nk(name)] = { name, unit };
+      return { type: 'raw', name: ex ? ex.name : (pend ? pend.name : name), key: nk(name), unit, qty, total };
+    });
+
+    const sub = sum(plan.map(l => l.total));
+    const extra = Math.max(+d.extra || 0, 0);
     const total = r2(sub + extra);
-    const paid = +d.paid || 0;
-    const vendor = d.vendorId ? find('vendors', d.vendorId) : null;
-    if (!vendor && paid < total - 0.005) throw new Error('Choose a vendor to keep the unpaid amount');
+    const paid = Math.max(+d.paid || 0, 0);
+    const from = clean(d.from);
+    const market = !from || nk(from) === nk(MARKET) || nk(from) === 'market';
+    const due = r2(total - paid);
+    if (Math.abs(due) > 0.005 && market) throw new Error('Type the vendor name to keep the ' + (due > 0 ? 'unpaid amount' : 'extra money paid'));
+    let vendor = null;
+    if (!market) {
+      vendor = state.vendors.find(v => !v.archived && nk(v.name) === nk(from)) || null;
+      if (!vendor && Math.abs(due) > 0.005) vendor = addPerson('vendors', { name: from });
+    }
+
+    // everything is valid: now change the data
+    Object.keys(newRaws).forEach(k => {
+      state.items.push({ id: uid(), kind: 'raw', name: newRaws[k].name, unit: newRaws[k].unit, stock: 0, cost: 0, price: 0, low: 0, archived: false });
+    });
     const no = 'PUR-' + pad(state.counters.purchase++, 4);
-    const out = lines.map(l => {
-      const it = item(l.itemId);
-      const unit = l.unit || it.unit;
-      const qtyBase = r3(conv(+l.qty, unit, it.unit));
-      const lt = +l.total || 0;
-      const share = sub > 0 ? extra * (lt / sub) : extra / lines.length;
-      const landed = lt + share;
+    const out = plan.map(l => {
+      let it, qtyBase, unit;
+      if (l.type === 'raw') {
+        it = findRaw(l.key);
+        unit = l.unit;
+        qtyBase = r3(conv(l.qty, unit, it.unit));
+      } else {
+        const rw = findRaw(l.rawKey);
+        it = state.items.find(i => !i.archived && i.kind === 'pack' && i.rawId === rw.id && i.sizeKey === l.key && nk(i.pname || 'Packet') === nk(l.pname || 'Packet'));
+        if (!it) {
+          const label = sizeLabel(l.size, l.sizeUnit);
+          it = { id: uid(), kind: 'pack', name: packName(rw, label, l.pname), rawId: rw.id, size: l.size, sizeUnit: l.sizeUnit, sizeKey: l.key, label, pname: clean(l.pname) || 'Packet', unit: 'pcs', stock: 0, cost: 0, price: 0, low: 0, archived: false };
+          state.items.push(it);
+        }
+        unit = 'pcs';
+        qtyBase = r3(l.qty);
+      }
+      const share = sub > 0 ? extra * (l.total / sub) : extra / plan.length;
+      const landed = l.total + share;
       const old = Math.max(it.stock, 0);
       it.cost = (old + qtyBase) > 0 ? (old * it.cost + landed) / (old + qtyBase) : it.cost;
       it.stock = r3(it.stock + qtyBase);
-      return { itemId: it.id, name: it.name, qty: +l.qty, unit, qtyBase, total: r2(lt), landed: r2(landed) };
+      return { itemId: it.id, name: it.name, kind: it.kind, qty: l.qty, unit, qtyBase, total: r2(l.total), landed: r2(landed), perUnit: r4(landed / qtyBase) };
     });
-    const pu = { id: uid(), no, date: d.date || today(), ts: Date.now(), vendorId: vendor ? vendor.id : '', vendorName: vendor ? vendor.name : 'Cash purchase', lines: out, extra: r2(extra), total, paid: r2(paid), note: d.note || '', method: d.method || 'Cash' };
+    const pu = {
+      id: uid(), no, date: d.date || today(), ts: Date.now(), vendorId: vendor ? vendor.id : '', vendorName: market ? MARKET : (vendor ? vendor.name : from),
+      lines: out, extra: r2(extra), total, paid: r2(paid), note: d.note || '', method: d.method || 'Cash'
+    };
     state.purchases.push(pu);
     if (vendor) {
       ledger(vendor, 'purchase', 'Purchase ' + no, total, pu.id, '', pu.date);
@@ -224,44 +336,106 @@
     return pu;
   }
 
-  /* ---------- making products (packing) ---------- */
-  function produceShortage(productId, qty) {
-    const p = item(productId);
-    const rc = recipeCost(p);
-    const short = [];
-    rc.lines.forEach(l => {
-      const need = r3(l.qtyBase * qty);
-      if (l.item.stock + 1e-9 < need) short.push({ name: l.item.name, need, have: l.item.stock, unit: l.item.unit });
-    });
-    return short;
+  function deletePurchase(id) {
+    const pu = find('purchases', id);
+    if (!pu) throw new Error('Not found');
+    pu.lines.forEach(l => { const it = item(l.itemId); if (it) it.stock = r3(it.stock - l.qtyBase); });
+    dropLedgerRef('vendors', pu.vendorId, pu.id);
+    state.purchases = state.purchases.filter(p => p.id !== id);
+    prune(pu.lines.map(l => l.itemId).sort((a, b) => (item(a) && item(a).kind === 'pack' ? -1 : 1)));
+    save();
   }
 
-  function produce(productId, qty, force) {
-    const p = item(productId);
-    if (!p || p.kind !== 'product') throw new Error('Choose a product');
-    qty = +qty;
-    if (!(qty > 0)) throw new Error('Enter how many to make');
-    const rc = recipeCost(p);
-    if (!rc.lines.length) throw new Error('Add ingredients to this product first');
-    const short = produceShortage(productId, qty);
-    if (short.length && !force) {
-      const e = new Error('Not enough stock: ' + short.map(s => s.name).join(', '));
-      e.short = short;
+  /* ---------- packing: raw material -> packed products ---------- */
+  function packGroups(rawId) {
+    const g = {};
+    state.items.filter(i => !i.archived && i.kind === 'pack' && i.rawId === rawId).forEach(i => {
+      const o = g[i.sizeKey] || (g[i.sizeKey] = { key: i.sizeKey, label: i.label, size: i.size, sizeUnit: i.sizeUnit, packs: [], product: null });
+      o.packs.push(i);
+    });
+    const arr = Object.keys(g).map(k => g[k]).sort((a, b) => a.key - b.key);
+    arr.forEach(o => {
+      o.product = state.items.find(i => !i.archived && i.kind === 'product' && i.rawId === rawId && i.sizeKey === o.key) || null;
+      if (o.product) o.label = o.product.label;
+    });
+    return arr;
+  }
+  const rawsWithPacks = () => rawItems().filter(r => packGroups(r.id).length > 0);
+  const suggest = (cost, margin) => Math.ceil(cost * (1 + (+margin || 0) / 100));
+
+  /* cost of ONE packet of a group (raw part + packaging part) */
+  function packetCost(rawId, group) {
+    const raw = item(rawId);
+    const rawPart = raw.cost * group.key;
+    const packPart = sum(group.packs.map(p => p.cost));
+    return { raw: r4(rawPart), pack: r4(packPart), total: r4(rawPart + packPart) };
+  }
+
+  function packPlan(rawId, entries, extra) {
+    const raw = item(rawId);
+    const groups = packGroups(rawId);
+    const list = (entries || []).map(e => ({ g: groups.find(x => x.key === +e.key), count: +e.count || 0, price: +e.price || 0 })).filter(x => x.g && x.count > 0);
+    const rawNeed = r3(sum(list.map(x => x.count * x.g.key)));
+    const packNeed = {};
+    list.forEach(x => x.g.packs.forEach(p => { packNeed[p.id] = r3((packNeed[p.id] || 0) + x.count); }));
+    const short = [];
+    if (raw.stock + 1e-9 < rawNeed) short.push({ name: raw.name, need: rawNeed, have: raw.stock, unit: raw.unit });
+    Object.keys(packNeed).forEach(id => { const p = item(id); if (p.stock + 1e-9 < packNeed[id]) short.push({ name: p.name, need: packNeed[id], have: p.stock, unit: 'pcs' }); });
+    const w = sum(list.map(x => x.count * x.g.key));
+    const ex = Math.max(+extra || 0, 0);
+    const rows = list.map(x => {
+      const c = packetCost(rawId, x.g);
+      const share = w > 0 ? ex * (x.count * x.g.key) / w : 0;
+      const perExtra = share / x.count;
+      return { key: x.g.key, count: x.count, price: x.price, cost: r4(c.total + perExtra), group: x.g };
+    });
+    return { raw, list, rows, rawNeed, packNeed, short, totalCost: r2(sum(rows.map(r => r.cost * r.count))) };
+  }
+
+  function pack(d) {
+    const raw = item(d.rawId);
+    if (!raw || raw.kind !== 'raw') throw new Error('Choose a raw material');
+    const plan = packPlan(d.rawId, d.entries, d.extra);
+    if (!plan.rows.length) throw new Error('Enter how many packets you made');
+    if (plan.short.length && !d.force) {
+      const e = new Error('Not enough stock: ' + plan.short.map(s => s.name).join(', '));
+      e.short = plan.short;
       throw e;
     }
-    const used = rc.lines.map(l => {
-      const qb = r3(l.qtyBase * qty);
-      l.item.stock = r3(l.item.stock - qb);
-      return { itemId: l.item.id, name: l.item.name, qtyBase: qb, unit: l.item.unit };
+    const packUsed = Object.keys(plan.packNeed).map(id => {
+      const p = item(id);
+      p.stock = r3(p.stock - plan.packNeed[id]);
+      return { itemId: id, name: p.name, qty: plan.packNeed[id] };
     });
-    const unitCost = rc.total;
-    const old = Math.max(p.stock, 0);
-    p.cost = (old + qty) > 0 ? (old * p.cost + qty * unitCost) / (old + qty) : unitCost;
-    p.stock = r3(p.stock + qty);
-    const b = { id: uid(), date: today(), ts: Date.now(), productId: p.id, name: p.name, qty, unitCost: r2(unitCost), total: r2(unitCost * qty), used };
+    raw.stock = r3(raw.stock - plan.rawNeed);
+    const entries = plan.rows.map(r => {
+      let pr = r.group.product;
+      if (!pr) {
+        pr = { id: uid(), kind: 'product', name: productName(raw, r.group.label), rawId: raw.id, size: r.group.size, sizeUnit: r.group.sizeUnit, sizeKey: r.key, label: r.group.label, unit: 'pcs', stock: 0, cost: 0, price: 0, low: 0, archived: false };
+        state.items.push(pr);
+      }
+      const old = Math.max(pr.stock, 0);
+      pr.cost = (old + r.count) > 0 ? (old * pr.cost + r.count * r.cost) / (old + r.count) : r.cost;
+      pr.stock = r3(pr.stock + r.count);
+      if (r.price > 0) pr.price = r.price;
+      return { productId: pr.id, name: pr.name, count: r.count, unitCost: r2(r.cost) };
+    });
+    const b = { id: uid(), date: today(), ts: Date.now(), rawId: raw.id, rawName: raw.name, rawUsed: plan.rawNeed, rawUnit: raw.unit, entries, packUsed, total: plan.totalCost };
     state.batches.push(b);
     save();
     return b;
+  }
+
+  function undoBatch(id) {
+    const b = find('batches', id);
+    if (!b) throw new Error('Not found');
+    const raw = item(b.rawId);
+    if (raw) raw.stock = r3(raw.stock + b.rawUsed);
+    b.packUsed.forEach(u => { const p = item(u.itemId); if (p) p.stock = r3(p.stock + u.qty); });
+    b.entries.forEach(e => { const p = item(e.productId); if (p) p.stock = r3(p.stock - e.count); });
+    state.batches = state.batches.filter(x => x.id !== id);
+    prune(b.entries.map(e => e.productId));
+    save();
   }
 
   /* ---------- selling ---------- */
@@ -338,6 +512,19 @@
     save();
   }
 
+  /* Delete a bill completely (as if it never happened). */
+  function deleteInvoice(id) {
+    const inv = find('invoices', id);
+    if (!inv) throw new Error('Not found');
+    if (!inv.void) {
+      inv.lines.forEach(l => { const it = item(l.itemId); if (it) it.stock = r3(it.stock + l.qtyBase); });
+      if (inv.orderId) { const o = find('orders', inv.orderId); if (o) { o.status = 'pending'; o.invoiceId = ''; } }
+    }
+    dropLedgerRef('customers', inv.customerId, inv.id);
+    state.invoices = state.invoices.filter(i => i.id !== id);
+    save();
+  }
+
   /* ---------- customer advance orders ---------- */
   function order(d) {
     const cust = find('customers', d.customerId);
@@ -371,13 +558,23 @@
     save();
   }
 
+  function deleteOrder(id) {
+    const o = find('orders', id);
+    if (!o) throw new Error('Not found');
+    if (o.status === 'delivered') throw new Error('This order was delivered. Delete its bill first.');
+    dropLedgerRef('customers', o.customerId, o.id);
+    state.orders = state.orders.filter(x => x.id !== id);
+    save();
+  }
+
   /* ---------- history, totals, reports ---------- */
   function movements(id) {
     const out = [];
     state.purchases.forEach(p => p.lines.forEach(l => { if (l.itemId === id) out.push({ date: p.date, ts: p.ts, type: 'Bought', ref: p.no, qty: l.qtyBase }); }));
     state.batches.forEach(b => {
-      if (b.productId === id) out.push({ date: b.date, ts: b.ts, type: 'Made', ref: '', qty: b.qty });
-      b.used.forEach(u => { if (u.itemId === id) out.push({ date: b.date, ts: b.ts, type: 'Used for ' + b.name, ref: '', qty: -u.qtyBase }); });
+      if (b.rawId === id) out.push({ date: b.date, ts: b.ts, type: 'Packed into products', ref: '', qty: -b.rawUsed });
+      (b.packUsed || []).forEach(u => { if (u.itemId === id) out.push({ date: b.date, ts: b.ts, type: 'Used in packing', ref: '', qty: -u.qty }); });
+      (b.entries || []).forEach(e => { if (e.productId === id) out.push({ date: b.date, ts: b.ts, type: 'Packed', ref: '', qty: e.count }); });
     });
     state.invoices.forEach(i => { if (!i.void) i.lines.forEach(l => { if (l.itemId === id) out.push({ date: i.date, ts: i.ts, type: 'Sold', ref: i.no, qty: -l.qtyBase }); }); });
     state.adjustments.forEach(a => { if (a.itemId === id) out.push({ date: a.date, ts: a.ts, type: a.reason, ref: '', qty: a.delta }); });
@@ -400,7 +597,7 @@
       todayBills: sales.filter(i => i.date === t).length,
       monthSales: r2(sum(sales.filter(i => i.date.slice(0, 7) === month).map(i => i.total))),
       monthProfit: r2(sum(sales.filter(i => i.date.slice(0, 7) === month).map(i => i.profit))),
-      low: act.filter(i => i.kind !== 'pack' || true).filter(i => i.low > 0 && i.stock <= i.low),
+      low: act.filter(i => i.low > 0 && i.stock <= i.low),
       pendingOrders: state.orders.filter(o => o.status === 'pending').length
     };
   }
@@ -435,7 +632,7 @@
     }));
     // walk-in bills (no customer record) are always paid in full
     inv.filter(i => !i.customerId).forEach(i => { cashIn += i.paid; });
-    // cash purchases (no vendor) are fully paid
+    // purchases without a vendor record are fully paid in cash
     pur.filter(p => !p.vendorId).forEach(p => { cashOut += p.paid; });
     return {
       bills: inv.length, sales: r2(sum(inv.map(i => i.total))), discount: r2(sum(inv.map(i => i.discount))),
@@ -450,21 +647,24 @@
   function importJSON(text) {
     const d = JSON.parse(text);
     if (!d || !Array.isArray(d.items) || !d.settings) throw new Error('This is not an ECOLaver backup file');
-    const f = fresh();
-    state = Object.assign(f, d);
-    state.settings = Object.assign(f.settings, d.settings);
-    state.counters = Object.assign(f.counters, d.counters || {});
+    if (d.v !== 2) throw new Error('This backup is from an old version of the app and cannot be used');
+    adopt(d);
     save();
   }
-  function resetAll() { state = fresh(); save(); }
+  function resetAll(keepSettings) {
+    const s = state.settings;
+    state = fresh();
+    if (keepSettings !== false) state.settings = Object.assign(state.settings, s);
+    save();
+  }
   function saveSettings(s) { Object.assign(state.settings, s); save(); }
 
   const DB = {
-    UNITS, load, save, uid, today, r2, r3, sum, conv, compat, money, qtyFmt, localDate,
-    get state() { return state; }, get lastError() { return lastError; },
-    item, find, addPerson, updatePerson, removePerson, payment, addItem, updateItem, archiveItem,
-    recipeCost, setRecipe, suggestPrice, stockAdjust, purchase, produce, produceShortage,
-    stockIssues, invoice, voidInvoice, order, cancelOrder, movements, totals, lastDays, report,
+    UNITS, MARKET, load, save, uid, today, r2, r3, r4, sum, conv, compat, money, qtyFmt, localDate, nk, clean,
+    get state() { return state; }, get lastError() { return lastError; }, get notice() { return notice; },
+    item, find, rawItems, findRaw, places, addPerson, updatePerson, removePerson, payment, deleteLedgerEntry,
+    updateItem, removeItem, stockAdjust, purchase, deletePurchase, packGroups, rawsWithPacks, packetCost, packPlan, pack, undoBatch, suggest,
+    stockIssues, invoice, voidInvoice, deleteInvoice, order, cancelOrder, deleteOrder, movements, totals, lastDays, report,
     exportJSON, importJSON, resetAll, saveSettings
   };
 

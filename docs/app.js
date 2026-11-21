@@ -38,10 +38,10 @@
   const ic = n => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (IC[n] || '') + '</svg>';
 
   /* ---------- state ---------- */
-  const S = { stack: [], bill: null, order: null, buy: null, recipe: null, pick: null, conf: null, formDone: null, makeId: '',
+  const S = { stack: [], bill: null, order: null, buy: null, pack: null, pick: null, conf: null, formDone: null,
     flt: { stock: 'all', people: 'customers', orders: 'pending', rep: 'today' }, q: {} };
   let cur = { n: 'home', p: {} };
-  const KIND = { raw: { n: 'Raw material', c: '' }, pack: { n: 'Packaging', c: 'gold' }, product: { n: 'Ready product', c: 'blue' } };
+  const KIND = { raw: { n: 'Raw material', c: '' }, pack: { n: 'Packaging', c: 'gold' }, product: { n: 'Packed product', c: 'blue' } };
 
   /* ---------- small helpers ---------- */
   let toastT;
@@ -188,22 +188,27 @@
     return b > 0 ? { t: 'You owe ' + money(b), c: 'neg' } : { t: 'Advance paid ' + money(-b), c: 'pos' };
   }
 
-  /* ---------- navigation ---------- */
-  const TABOF = { home: 'home', stock: 'stock', item: 'stock', recipe: 'more', bill: 'bill', invoice: 'bill', people: 'people', person: 'people' };
+  /* ---------- navigation (own stack, so Back always goes one step back) ---------- */
+  const TABOF = { home: 'home', stock: 'stock', item: 'stock', bill: 'bill', invoice: 'bill', people: 'people', person: 'people' };
   function go(n, p, replace) {
-    if (replace) history.replaceState({}, ''); else { S.stack.push(cur); history.pushState({}, ''); }
+    if (!replace) S.stack.push(cur);
     cur = { n, p: p || {} };
     draw();
   }
-  function tab(k) {
-    S.stack = []; cur = { n: k, p: {} };
-    draw();
+  function tab(k) { S.stack = []; cur = { n: k, p: {} }; draw(); }
+  function goBack() {
+    if ($('.sheet-wrap')) { closeSheet(); return true; }
+    if (S.stack.length) { cur = S.stack.pop(); draw(true); return true; }
+    if (cur.n !== 'home') { cur = { n: 'home', p: {} }; draw(); return true; }
+    return false;
   }
-  window.addEventListener('popstate', () => {
-    closeSheet();
-    if (S.stack.length) { cur = S.stack.pop(); draw(true); }
-    else if (cur.n !== 'home') { cur = { n: 'home', p: {} }; draw(); }
-  });
+  const AppP = plug('App');
+  if (AppP && AppP.addListener) {
+    AppP.addListener('backButton', () => { if (!goBack() && AppP.exitApp) AppP.exitApp(); });
+  } else {
+    history.replaceState({}, ''); history.pushState({}, '');
+    window.addEventListener('popstate', () => { history.pushState({}, ''); goBack(); });
+  }
   function drawNav() {
     const t = TABOF[cur.n] || 'more';
     $('#nav').innerHTML = [['home', 'Home', 'home'], ['stock', 'Stock', 'box'], ['bill', 'Bill', 'receipt', 1], ['people', 'People', 'users'], ['more', 'More', 'grid']]
@@ -233,13 +238,13 @@
   /* ---------- pickers ---------- */
   function pickItem(kinds, cb) {
     S.pick = { kinds, cb, kind: 'item' };
-    openSheet('<h2>Choose item</h2><div class="search"><input id="pq" placeholder="Search..." data-in="pq" data-nofocus="1"></div><div class="pick" id="plist">' + pickItems('') + '</div><button class="btn block" style="margin-top:12px" data-act="pickNew">' + ic('plus') + ' New item</button>');
+    openSheet('<h2>Choose item</h2><div class="search"><input id="pq" placeholder="Search..." data-in="pq" data-nofocus="1"></div><div class="pick" id="plist">' + pickItems('') + '</div>');
   }
   function pickItems(q) {
     const list = D.state.items.filter(i => !i.archived && S.pick.kinds.includes(i.kind) && i.name.toLowerCase().includes(q.toLowerCase()));
     return list.map(i => '<div class="row" data-act="pickDo" data-id="' + i.id + '"><div class="ico ' + KIND[i.kind].c + '">' + ic('box') + '</div><div class="main"><div class="t">' + esc(i.name) +
       '</div><div class="s">' + KIND[i.kind].n + ' · Stock ' + qf(i.stock) + ' ' + i.unit + '</div></div><div class="end"><b>' + (i.price ? money(i.price) + '/' + i.unit : '') + '</b></div></div>').join('') ||
-      '<div class="empty">Nothing found. Tap "New item" below.</div>';
+      '<div class="empty">Nothing found. Buy stock and pack products first.</div>';
   }
   function pickPerson(kind, cb, allowNone) {
     S.pick = { kind: 'person', pk: kind, cb };
@@ -257,19 +262,13 @@
   }
 
   /* ---------- forms in sheets ---------- */
-  function itemForm(id, opts) {
-    opts = opts || {};
-    const it = id ? D.item(id) : null;
-    const kind = it ? it.kind : (opts.kind || 'raw');
-    S.formDone = opts.onDone || null;
-    openSheet('<h2>' + (it ? 'Edit item' : 'New item') + '</h2>' +
-      '<div class="field"><label>Name</label><input id="f-name" placeholder="e.g. Ajwa Dates" value="' + esc(it ? it.name : '') + '"></div>' +
-      (it ? '' : '<div class="field"><label>What is it?</label><select id="f-kind"><option value="raw"' + (kind === 'raw' ? ' selected' : '') + '>Raw material (dates, honey, oil...)</option><option value="pack"' + (kind === 'pack' ? ' selected' : '') + '>Packaging (bottle, pouch, label...)</option><option value="product"' + (kind === 'product' ? ' selected' : '') + '>Ready product (packed item you sell)</option></select></div>') +
-      '<div class="two"><div class="field"><label>Counted in</label>' + (it ? '<input value="' + it.unit + '" disabled>' : '<select id="f-unit">' + D.UNITS.map(u => '<option>' + u + '</option>').join('') + '</select>') + '</div>' +
-      '<div class="field"><label>Low stock alert at</label><input id="f-low" type="number" inputmode="decimal" placeholder="0" value="' + (it && it.low ? it.low : '') + '"></div></div>' +
-      '<div class="field"><label>Selling price per unit (₹)</label><input id="f-price" type="number" inputmode="decimal" placeholder="0" value="' + (it && it.price ? it.price : '') + '"><div class="hint">Leave empty for raw material or packaging you do not sell.</div></div>' +
-      (it ? '' : '<div class="two"><div class="field"><label>Stock you already have</label><input id="f-stock" type="number" inputmode="decimal" placeholder="0"></div><div class="field"><label>Cost per unit (₹)</label><input id="f-cost" type="number" inputmode="decimal" placeholder="0"></div></div><div class="hint" style="margin:-4px 0 12px">Optional. Later you can add stock with "Buy stock".</div>') +
-      '<button class="btn primary block" data-act="itemSave" data-id="' + (id || '') + '">Save</button>');
+  function itemForm(id) {
+    const it = D.item(id);
+    openSheet('<h2>Edit item</h2>' +
+      (it.kind === 'raw' ? '<div class="field"><label>Name</label><input id="f-name" value="' + esc(it.name) + '"></div>' : '<p class="mut" style="margin-bottom:12px">' + esc(it.name) + '</p>') +
+      (it.kind === 'pack' ? '' : '<div class="field"><label>Selling price per ' + it.unit + ' (₹)</label><input id="f-price" type="number" inputmode="decimal" placeholder="0" value="' + (it.price || '') + '"><div class="hint">' + (it.kind === 'raw' ? 'Only fill this if you also sell the raw material.' : 'This price is filled automatically on every bill.') + '</div></div>') +
+      '<div class="field"><label>Low stock alert at (' + it.unit + ')</label><input id="f-low" type="number" inputmode="decimal" placeholder="0" value="' + (it.low || '') + '"></div>' +
+      '<button class="btn primary block" data-act="itemSave" data-id="' + id + '">Save</button>');
   }
   function personForm(kind, id, opts) {
     const p = id ? D.find(kind, id) : null;
@@ -379,19 +378,20 @@
   SCREENS.home = () => {
     const t = D.totals(), s = D.state.settings, st = D.state;
     const days = D.lastDays(7), mx = Math.max.apply(null, days.map(d => d.total).concat([1]));
-    const lastB = s.lastBackup, needBk = st.invoices.length > 0 && (!lastB || (Date.now() - new Date(lastB).getTime()) > 7 * 864e5);
+    const lastB = s.lastBackup, needBk = (st.invoices.length > 0 || st.purchases.length > 0) && (!lastB || (Date.now() - new Date(lastB).getTime()) > 7 * 864e5);
     const start = st.items.length === 0;
+    const tile = (n, icon, label, cls, sub) => '<button class="tile ' + (cls || '') + '" data-act="goto" data-n="' + n + '">' + ic(icon) + '<span>' + label + '</span>' + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
     return top(s.name, s.tagline, { home: true }) + '<div class="page stagger">' +
       '<div class="hero"><small>Today\'s sales</small><div class="big" data-count="' + t.todaySales + '">' + money(t.todaySales) + '</div><div class="sub"><span>' + t.todayBills + ' bills</span><span>Profit ' + money(t.todayProfit) + '</span></div></div>' +
-      (start ? '<div class="card"><h3>Let\'s get started</h3>' +
-        [['1', 'Add your items', 'Raw material, packaging and products', 'stock'], ['2', 'Buy stock', 'Enter what you bought and the price', 'buy'], ['3', 'Make products', 'Set recipe and selling price', 'make'], ['4', 'Make your first bill', 'Type items, bill is ready', 'bill']]
+      '<div class="tiles">' + tile('bill', 'receipt', 'New Bill', 'gold') + tile('buyMenu', 'cart', 'Buy Stock') + tile('pack', 'pack', 'Pack Products') + tile('stock', 'box', 'Stock') +
+      tile('orders', 'clip', 'Orders', '', t.pendingOrders ? t.pendingOrders + ' pending' : '') + tile('invoices', 'receipt', 'All Bills') + tile('reports', 'chart', 'Reports') + tile('settings', 'gear', 'Settings') + '</div>' +
+      (start ? '<div class="card"><h3>How to start</h3>' +
+        [['1', 'Buy Stock', 'Raw material first, then packaging', 'buyMenu'], ['2', 'Pack Products', 'Turn raw material into packets', 'pack'], ['3', 'New Bill', 'Sell and print the bill', 'bill']]
           .map(a => '<div class="row" data-act="goto" data-n="' + a[3] + '"><div class="ico gold">' + a[0] + '</div><div class="main"><div class="t">' + a[1] + '</div><div class="s">' + a[2] + '</div></div></div>').join('') + '</div>' : '') +
       '<div class="grid2"><div class="stat red" data-act="goPeople" data-v="customers"><small>Customers owe you</small><b>' + money(t.customerDue) + '</b></div>' +
       '<div class="stat gold" data-act="goPeople" data-v="vendors"><small>You owe vendors</small><b>' + money(t.vendorDue) + '</b></div>' +
       '<div class="stat" data-act="tab" data-t="stock"><small>Stock value</small><b>' + money(t.stockValue) + '</b></div>' +
       '<div class="stat green" data-act="goto" data-n="reports"><small>Profit this month</small><b>' + money(t.monthProfit) + '</b></div></div>' +
-      '<div class="grid2"><button class="btn gold" data-act="goto" data-n="buy">' + ic('cart') + 'Buy stock</button><button class="btn" data-act="goto" data-n="make">' + ic('pack') + 'Make products</button>' +
-      '<button class="btn" data-act="goto" data-n="orders">' + ic('clip') + 'Orders' + (t.pendingOrders ? ' (' + t.pendingOrders + ')' : '') + '</button><button class="btn" data-act="goto" data-n="invoices">' + ic('receipt') + 'All bills</button></div>' +
       (S.upd ? '<div class="note green"><b>Update available</b><br>A new version of the app is ready.<br><button class="btn sm primary" style="margin-top:8px" data-act="updNow">Update now</button></div>' : '') +
       (needBk ? '<div class="note" data-act="goto" data-n="settings">Your data lives only on this phone. Tap here to download a backup.</div>' : '') +
       (t.low.length ? '<div class="card"><h3>Low stock <small>' + t.low.length + ' items</small></h3>' + t.low.slice(0, 5).map(i => '<div class="row" data-act="goto" data-n="item" data-id="' + i.id + '"><div class="ico red">' + ic('alert') + '</div><div class="main"><div class="t">' + esc(i.name) + '</div></div><div class="end"><b class="neg">' + qf(i.stock) + ' ' + i.unit + '</b></div></div>').join('') + '</div>' : '') +
@@ -428,9 +428,10 @@
     return top('Bill ' + inv.no, fmtDate(inv.date)) + '<div class="page">' +
       (p.fresh ? '<div class="success"><div class="tick">' + ic('check') + '</div><b style="font-size:18px">Bill saved</b><p class="mut">Stock updated automatically</p></div>' : '') +
       paper(inv) +
-      '<div class="btns" style="margin-top:14px"><button class="btn gold" data-act="invShare" data-id="' + inv.id + '">' + ic('share') + 'WhatsApp</button><button class="btn" data-act="invPrint">' + ic('print') + 'Print / PDF</button></div>' +
+      '<div class="btns" style="margin-top:14px"><button class="btn gold" data-act="invShare" data-id="' + inv.id + '">' + ic('share') + 'WhatsApp</button><button class="btn" data-act="invPrint" data-id="' + inv.id + '">' + ic('print') + 'Print / PDF</button></div>' +
       (cust && !inv.void && cust.balance > 0.005 ? '<button class="btn primary block" style="margin-top:10px" data-act="payOpen" data-kind="customers" data-id="' + cust.id + '">' + ic('wallet') + 'Receive payment</button>' : '') +
-      '<div class="btns" style="margin-top:10px"><button class="btn ghost" data-act="newBill">' + ic('plus') + 'New bill</button>' + (inv.void ? '' : '<button class="btn danger" data-act="invVoid" data-id="' + inv.id + '">Cancel bill</button>') + '</div></div>';
+      '<div class="btns" style="margin-top:10px"><button class="btn ghost" data-act="newBill">' + ic('plus') + 'New bill</button>' + (inv.void ? '' : '<button class="btn danger" data-act="invVoid" data-id="' + inv.id + '">Cancel bill</button>') + '</div>' +
+      '<button class="btn danger block" style="margin-top:10px" data-act="invDel" data-id="' + inv.id + '">Delete this bill completely</button></div>';
   };
 
   const invList = () => {
@@ -441,134 +442,161 @@
   };
   SCREENS.invoices = () => top('All Bills', D.state.invoices.length + ' bills') + '<div class="page"><div class="search"><input placeholder="Search bill no or customer" data-in="q" data-k="inv" value="' + esc(S.q.inv || '') + '"></div><div class="card" id="list">' + invList() + '</div></div>';
 
-  /* ---------- STOCK ---------- */
+  /* ---------- STOCK (view only: stock changes by buying, packing and selling) ---------- */
   const stockList = () => {
     const f = S.flt.stock, q = (S.q.stock || '').toLowerCase();
     const l = D.state.items.filter(i => !i.archived && (f === 'all' || i.kind === f) && i.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
     return l.map(i => {
       const low = i.stock <= 0 ? '<span class="pill bad">Out</span>' : (i.low > 0 && i.stock <= i.low ? '<span class="pill warn">Low</span>' : '');
       return '<div class="row" data-act="goto" data-n="item" data-id="' + i.id + '"><div class="ico ' + KIND[i.kind].c + '">' + ic(i.kind === 'product' ? 'pack' : 'box') + '</div><div class="main"><div class="t">' + esc(i.name) + '</div><div class="s">' + KIND[i.kind].n + ' · Cost ' + money(D.r2(i.cost)) + '/' + i.unit + '</div></div><div class="end"><b>' + qf(i.stock) + ' ' + i.unit + '</b>' + low + '</div></div>';
-    }).join('') || empty('box', 'No items here', 'Tap "+ New" to add your first item.');
+    }).join('') || empty('box', 'No items here', 'Items appear when you buy stock or pack products.', '<br><button class="btn primary" style="margin-top:12px" data-act="goto" data-n="buyMenu">Buy Stock</button>');
   };
-  SCREENS.stock = () => top('Stock', D.totals().stockValue ? 'Worth ' + money(D.totals().stockValue) : 'Everything you have', { act: 'itemNew', label: '+ New' }) + '<div class="page">' +
+  SCREENS.stock = () => top('Stock', D.totals().stockValue ? 'Worth ' + money(D.totals().stockValue) : 'Everything you have') + '<div class="page">' +
     '<div class="seg">' + [['all', 'All'], ['raw', 'Raw'], ['pack', 'Packaging'], ['product', 'Products']].map(a => '<button class="' + (S.flt.stock === a[0] ? 'on' : '') + '" data-act="fltStock" data-v="' + a[0] + '">' + a[1] + '</button>').join('') + '</div>' +
     '<div class="search"><input placeholder="Search items" data-in="q" data-k="stock" value="' + esc(S.q.stock || '') + '"></div><div class="card" id="list">' + stockList() + '</div></div>';
 
   SCREENS.item = p => {
     const it = D.item(p.id);
-    if (!it) return top('Item', '') + '<div class="page">' + empty('box', 'Item not found') + '</div>';
+    if (!it || it.archived) return top('Item', '') + '<div class="page">' + empty('box', 'Item not found') + '</div>';
     const mv = D.movements(it.id).slice(0, 15);
-    const isP = it.kind === 'product', rc = isP ? D.recipeCost(it) : null;
-    return top(it.name, KIND[it.kind].n) + '<div class="page stagger">' +
-      '<div class="grid2"><div class="stat"><small>In stock</small><b>' + qf(it.stock) + ' ' + it.unit + '</b></div><div class="stat"><small>Cost per ' + it.unit + '</small><b>' + money(D.r2(isP ? rc.total : it.cost)) + '</b></div>' +
+    const raw = it.rawId ? D.item(it.rawId) : null;
+    let acts = '';
+    if (it.kind === 'raw') acts = '<div class="btns" style="margin-bottom:12px"><button class="btn gold" data-act="buyMore" data-id="' + it.id + '">' + ic('cart') + 'Buy more</button>' + (D.packGroups(it.id).length ? '<button class="btn primary" data-act="goto" data-n="packRaw" data-id="' + it.id + '">' + ic('pack') + 'Pack</button>' : '') + '</div>';
+    else if (it.kind === 'pack') acts = '<button class="btn gold block" style="margin-bottom:12px" data-act="buyMore" data-id="' + it.id + '">' + ic('cart') + 'Buy more</button>';
+    else acts = '<button class="btn primary block" style="margin-bottom:12px" data-act="goto" data-n="packRaw" data-id="' + it.rawId + '">' + ic('pack') + 'Pack more</button>';
+    return top(it.name, KIND[it.kind].n + (raw ? ' · from ' + raw.name : '')) + '<div class="page stagger">' +
+      '<div class="grid2"><div class="stat"><small>In stock</small><b>' + qf(it.stock) + ' ' + it.unit + '</b></div><div class="stat"><small>Cost per ' + it.unit + '</small><b>' + money(D.r2(it.cost)) + '</b></div>' +
       '<div class="stat green"><small>Selling price</small><b>' + (it.price ? money(it.price) : '—') + '</b></div><div class="stat"><small>Stock worth</small><b>' + money(D.r2(Math.max(it.stock, 0) * it.cost)) + '</b></div></div>' +
-      (isP ? '<div class="btns" style="margin-bottom:12px"><button class="btn gold" data-act="goto" data-n="recipe" data-id="' + it.id + '">' + ic('pack') + 'Recipe & price</button><button class="btn primary" data-act="makeOpen" data-id="' + it.id + '">Make more</button></div>' : '<button class="btn gold block" style="margin-bottom:12px" data-act="goto" data-n="buy" data-item="' + it.id + '">' + ic('cart') + 'Buy more</button>') +
+      acts +
       '<div class="btns" style="margin-bottom:14px"><button class="btn ghost" data-act="itemEdit" data-id="' + it.id + '">Edit</button><button class="btn ghost" data-act="fsOpen" data-id="' + it.id + '">Fix stock</button><button class="btn danger" data-act="itemArchive" data-id="' + it.id + '">Remove</button></div>' +
       '<div class="card"><h3>Recent movement</h3>' + (mv.map(m => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(m.type) + '</div><div class="s">' + fmtDate(m.date) + (m.ref ? ' · ' + esc(m.ref) : '') + '</div></div><div class="end"><b class="' + (m.qty >= 0 ? 'pos' : 'neg') + '">' + (m.qty >= 0 ? '+' : '') + qf(m.qty) + ' ' + it.unit + '</b></div></div>').join('') || '<div class="empty" style="padding:14px">Nothing yet</div>') + '</div></div>';
   };
-
-  /* ---------- BUY ---------- */
-  function buyLine(l, i) {
-    const it = D.item(l.itemId), us = D.compat(it.unit);
-    return '<div class="line"><div class="head"><b>' + esc(it.name) + '</b><span class="mut" style="font-size:12px">Stock ' + qf(it.stock) + ' ' + it.unit + '</span><button class="x" data-act="lineDel" data-d="buy" data-i="' + i + '">×</button></div>' +
-      '<div class="three"><div class="field"><label>Qty bought</label><input type="number" inputmode="decimal" step="any" value="' + esc(l.qty) + '" data-in="line" data-d="buy" data-i="' + i + '" data-f="qty"></div>' +
-      '<div class="field"><label>Unit</label>' + (us.length > 1 ? '<select data-ch="unit" data-d="buy" data-i="' + i + '">' + us.map(u => '<option' + (u === l.unit ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>' : '<input value="' + l.unit + '" disabled>') + '</div>' +
-      '<div class="field"><label>Total price ₹</label><input type="number" inputmode="decimal" step="any" value="' + esc(l.total) + '" data-in="line" data-d="buy" data-i="' + i + '" data-f="total"></div></div>' +
-      '<div class="amt" data-out="amt-buy-' + i + '">' + buyRate(l) + '</div></div>';
+  /* ---------- BUY STOCK ---------- */
+  const newBuyLine = (type, pre) => type === 'pack' ? { type: 'pack', rawName: pre || '', size: '', sizeUnit: '', pname: '', qty: '', total: '' } : { type: 'raw', name: pre || '', unit: 'kg', qty: '', rate: '' };
+  const lineTotal = l => l.type === 'raw' ? num(l.qty) * num(l.rate) : num(l.total);
+  /* the unit a raw material is counted in: from saved stock, or from another line in this form */
+  function rawUnitOf(name) {
+    const k = D.nk(name); if (!k) return '';
+    const ex = D.findRaw(name); if (ex) return ex.unit;
+    const l = S.buy.lines.find(x => x.type === 'raw' && D.nk(x.name) === k);
+    return l ? l.unit : '';
   }
-  const buyRate = l => (num(l.qty) > 0 && num(l.total) > 0) ? '= ' + money(D.r2(num(l.total) / num(l.qty))) + ' per ' + l.unit : '';
-  const buyLines = () => S.buy.lines.map(buyLine).join('') || '<div class="empty" style="padding:14px">Add what you bought.</div>';
+  const smallUnit = u => ({ kg: 'g', g: 'g', litre: 'ml', ml: 'ml', pcs: 'pcs' }[u] || u);
   function calcBuy(b) {
-    const sub = D.r2(D.sum(b.lines.map(l => num(l.total)))), extra = num(b.extra), total = D.r2(sub + extra);
+    const sub = D.r2(D.sum(b.lines.map(lineTotal))), extra = num(b.extra), total = D.r2(sub + extra);
     const paid = b.paid === null ? total : num(b.paid);
-    return { sub, extra, total, paid, bal: D.r2(total - paid), v: b.vendorId ? D.find('vendors', b.vendorId) : null };
+    return { sub, extra, total, paid, bal: D.r2(total - paid), n: b.lines.length };
   }
-  const buyTotals = () => {
-    const c = calcBuy(S.buy);
-    return '<div class="r"><span>Items</span><b>' + money(c.sub) + '</b></div>' + (c.extra ? '<div class="r"><span>Extra (transport etc.)</span><b>' + money(c.extra) + '</b></div>' : '') +
-      '<div class="r big"><span>Total</span><b>' + money(c.total) + '</b></div><div class="r"><span>Paid now</span><b>' + money(c.paid) + '</b></div>' +
-      '<div class="r"><span>' + (c.bal < -0.005 ? 'Extra paid (advance to vendor)' : 'Unpaid (vendor due)') + '</span><b>' + money(Math.abs(c.bal)) + '</b></div>';
-  };
+  function buyInfo(l, c) {
+    const q = num(l.qty), t = lineTotal(l);
+    if (!(q > 0) || !(t > 0)) return '';
+    const share = c.sub > 0 ? c.extra * t / c.sub : 0;
+    const u = l.type === 'pack' ? 'piece' : l.unit;
+    let s = l.type === 'raw' ? 'Total ' + money(D.r2(t)) : money(D.r2(t / q)) + ' per piece';
+    if (share > 0.005) s += '<br><b>Real cost: ' + money(D.r2((t + share) / q)) + ' per ' + u + '</b> <span class="mut">(extra share ' + money(D.r2(share)) + ')</span>';
+    return s;
+  }
+  function buyLine(l, i, c) {
+    const x = '<button class="x" data-act="lineDel" data-d="buy" data-i="' + i + '">×</button>';
+    const inp = (f, label, ph, step) => '<div class="field"><label>' + label + '</label><input type="number" inputmode="decimal" step="any" placeholder="' + (ph || '') + '" value="' + esc(l[f]) + '" data-in="line" data-d="buy" data-i="' + i + '" data-f="' + f + '"></div>';
+    if (l.type === 'raw') {
+      const ex = D.findRaw(l.name);
+      const us = ex ? D.compat(ex.unit) : D.UNITS;
+      if (!us.includes(l.unit)) l.unit = ex ? ex.unit : l.unit;
+      return '<div class="line"><div class="head"><span class="pill">Raw material</span>' + (ex ? '<span class="mut" style="font-size:12px">Stock ' + qf(ex.stock) + ' ' + ex.unit + '</span>' : '') + x + '</div>' +
+        '<div class="field"><label>Name</label><input list="rawnames" placeholder="e.g. Ajwa Dates" value="' + esc(l.name) + '" data-in="line" data-d="buy" data-i="' + i + '" data-f="name" data-ch="rname"></div>' +
+        '<div class="three">' + inp('qty', 'Quantity', '0') +
+        '<div class="field"><label>Unit</label><select data-ch="unit" data-d="buy" data-i="' + i + '">' + us.map(u => '<option' + (u === l.unit ? ' selected' : '') + '>' + u + '</option>').join('') + '</select></div>' +
+        inp('rate', 'Price per ' + l.unit + ' ₹', '0') + '</div><div class="amt" data-out="info-' + i + '">' + buyInfo(l, c) + '</div></div>';
+    }
+    const names = []; D.rawItems().forEach(r => names.push(r.name));
+    S.buy.lines.forEach(x2 => { if (x2.type === 'raw' && D.clean(x2.name) && !names.some(n => D.nk(n) === D.nk(x2.name))) names.push(D.clean(x2.name)); });
+    const ru = rawUnitOf(l.rawName), su = ru ? D.compat(ru) : [];
+    if (ru && !su.includes(l.sizeUnit)) l.sizeUnit = smallUnit(ru);
+    return '<div class="line"><div class="head"><span class="pill warn">Packaging</span>' + x + '</div>' +
+      '<div class="field"><label>For which raw material?</label><select data-ch="packraw" data-d="buy" data-i="' + i + '"><option value="">Choose...</option>' + names.map(n => '<option' + (D.nk(n) === D.nk(l.rawName) ? ' selected' : '') + '>' + esc(n) + '</option>').join('') + '</select></div>' +
+      '<div class="two"><div class="field"><label>Pack size</label><input type="number" inputmode="decimal" step="any" placeholder="e.g. 500" value="' + esc(l.size) + '" data-in="line" data-d="buy" data-i="' + i + '" data-f="size"></div>' +
+      '<div class="field"><label>Size unit</label>' + (su.length ? '<select data-ch="sunit" data-d="buy" data-i="' + i + '">' + su.map(u => '<option' + (u === l.sizeUnit ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>' : '<input value="" placeholder="Choose raw first" disabled>') + '</div></div>' +
+      '<div class="field"><label>Packaging name</label><input list="packnames" placeholder="Pouch, Label, Box, Bottle..." value="' + esc(l.pname) + '" data-in="line" data-d="buy" data-i="' + i + '" data-f="pname"></div>' +
+      '<div class="two">' + inp('qty', 'Pieces bought', '0') + inp('total', 'Total price ₹', '0') + '</div><div class="amt" data-out="info-' + i + '">' + buyInfo(l, c) + '</div></div>';
+  }
+  const buyLines = () => { const c = calcBuy(S.buy); return S.buy.lines.map((l, i) => buyLine(l, i, c)).join('') || '<div class="empty" style="padding:14px">Add what you bought.</div>'; };
+  const buyTotals = c => '<div class="r"><span>Items</span><b>' + money(c.sub) + '</b></div>' + (c.extra ? '<div class="r"><span>Extra cost (shared)</span><b>' + money(c.extra) + '</b></div>' : '') +
+    '<div class="r big"><span>Total</span><b>' + money(c.total) + '</b></div><div class="r"><span>Paid now</span><b>' + money(c.paid) + '</b></div>' +
+    '<div class="r"><span>' + (c.bal < -0.005 ? 'Extra paid (advance to vendor)' : 'Unpaid (vendor due)') + '</span><b>' + money(Math.abs(c.bal)) + '</b></div>';
+
+  SCREENS.buyMenu = () => top('Buy Stock', 'What did you buy?') + '<div class="page">' +
+    '<div class="tiles"><button class="tile wide" data-act="buyStart" data-t="raw">' + ic('box') + '<span>Raw material<small>Dates, honey, oil, spices...</small></span></button>' +
+    '<button class="tile wide gold" data-act="buyStart" data-t="pack">' + ic('pack') + '<span>Packaging material<small>Pouch, label, box, bottle...</small></span></button></div>' +
+    '<div class="note">You can add more items in the same purchase on the next screen.</div>' +
+    '<button class="btn ghost block" style="margin-top:6px" data-act="goto" data-n="purchases">' + ic('cart') + 'Purchase history</button></div>';
+
   SCREENS.buy = p => {
-    if (!S.buy) S.buy = { vendorId: '', lines: [], extra: '', paid: null, method: 'Cash' };
-    if (p.vendorId) S.buy.vendorId = p.vendorId;
-    if (p.item && !S.buy.lines.some(l => l.itemId === p.item)) { const it = D.item(p.item); S.buy.lines.push({ itemId: it.id, qty: '', unit: it.unit, total: '' }); }
-    delete p.vendorId; delete p.item;
+    if (!S.buy) S.buy = { lines: [newBuyLine('raw')], extra: '', paid: null, from: '', method: 'Cash' };
+    if (p.pre) { const it = D.item(p.pre), b = S.buy; if (it) { const l = it.kind === 'raw' ? newBuyLine('raw', it.name) : Object.assign(newBuyLine('pack', D.item(it.rawId).name), { size: String(it.size), sizeUnit: it.sizeUnit, pname: it.pname }); if (it.kind === 'raw') l.unit = it.unit; b.lines = [l]; } }
+    delete p.pre;
     const b = S.buy, c = calcBuy(b);
-    return top('Buy Stock', 'Enter what you bought', { act: b.lines.length ? 'buyClear' : '', label: 'Clear' }) + '<div class="page">' +
-      '<div class="card"><h3>Vendor</h3><div class="row" data-act="buyVendor"><div class="ico gold">' + ic('truck') + '</div><div class="main"><div class="t">' + (c.v ? esc(c.v.name) : 'Cash purchase (no vendor)') + '</div><div class="s">' + (c.v ? balLabel('vendors', c.v.balance).t : 'Tap to choose a vendor') + '</div></div><span class="lnk">Change</span></div></div>' +
-      '<div class="card"><h3>What did you buy?</h3><div id="lines">' + buyLines() + '</div><button class="btn block" data-act="buyAdd">' + ic('plus') + 'Add item</button></div>' +
-      '<div class="card"><div class="field"><label>Extra cost: transport, loading etc. (₹)</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(b.extra) + '" data-in="f" data-d="buy" data-f="extra"><div class="hint">This is shared into the item cost automatically.</div></div>' +
+    return top('Buy Stock', 'Enter what you bought', { act: 'buyClear', label: 'Clear' }) + '<div class="page">' +
+      '<datalist id="rawnames">' + D.rawItems().map(r => '<option value="' + esc(r.name) + '">').join('') + '</datalist><datalist id="packnames">' + ['Pouch', 'Label', 'Box', 'Bottle', 'Jar', 'Lid', 'Sticker'].map(n => '<option value="' + n + '">').join('') + '</datalist>' +
+      '<div class="card"><h3>Items bought</h3><div id="lines">' + buyLines() + '</div>' +
+      '<div class="btns"><button class="btn" data-act="buyAdd" data-t="raw">' + ic('plus') + 'Raw material</button><button class="btn gold" data-act="buyAdd" data-t="pack">' + ic('plus') + 'Packaging</button></div></div>' +
+      '<div class="card"><div class="field"><label>Extra cost for this trip: transport, food... (₹)</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(b.extra) + '" data-in="f" data-d="buy" data-f="extra"><div class="hint">Type it once. It is shared across all items by price, so every item shows its real cost.</div></div>' +
+      '<div class="field"><label>Bought from (optional)</label><input list="places" placeholder="Leave empty for market / cash" value="' + esc(b.from) + '" data-in="f" data-d="buy" data-f="from"><datalist id="places">' + D.places().map(n => '<option value="' + esc(n) + '">').join('') + '</datalist><div class="hint">Type a name only if you keep a due or advance with them.</div></div>' +
       '<div class="field"><label>Paid now (₹)</label><input id="paidIn" type="number" inputmode="decimal" value="' + (b.paid === null ? c.total : esc(b.paid)) + '" data-in="f" data-d="buy" data-f="paid"></div>' +
       '<div class="btns" style="margin:-4px 0 12px"><button class="btn sm ghost" data-act="buyPaidFull">Full amount</button><button class="btn sm ghost" data-act="buyPaidNone">Nothing (pay later)</button></div>' +
       '<div class="field" style="margin-bottom:0"><label>Paid by</label>' + methodSeg('buy', b.method) + '</div></div>' +
-      '<div class="tbox" id="utot">' + buyTotals() + '</div><div class="sticky-save"><button class="btn primary block" data-act="buySave">Save purchase</button></div></div>';
+      '<div class="tbox" id="utot">' + buyTotals(c) + '</div><div class="sticky-save"><button class="btn primary block" data-act="buySave">Save purchase</button></div></div>';
   };
-  SCREENS.purchases = () => top('Purchases', D.state.purchases.length + ' entries') + '<div class="page"><div class="card">' +
-    (D.state.purchases.slice().sort((a, b) => b.ts - a.ts).slice(0, 100).map(pu => '<div class="row" style="cursor:default"><div class="ico gold">' + ic('cart') + '</div><div class="main"><div class="t">' + esc(pu.vendorName) + '</div><div class="s">' + esc(pu.no) + ' · ' + fmtDate(pu.date) + ' · ' + pu.lines.map(l => esc(l.name)).join(', ') + '</div></div><div class="end"><b>' + money(pu.total) + '</b>' + (pu.total - pu.paid > 0.005 ? '<span class="pill warn">Unpaid ' + money(D.r2(pu.total - pu.paid)) + '</span>' : '<span class="pill">Paid</span>') + '</div></div>').join('') || empty('cart', 'No purchases yet', 'Use "Buy stock" to add one.')) + '</div></div>';
 
-  /* ---------- MAKE / RECIPE ---------- */
-  SCREENS.make = () => {
-    const ps = D.state.items.filter(i => i.kind === 'product' && !i.archived).sort((a, b) => a.name.localeCompare(b.name));
-    return top('Make Products', 'Pack your items and track the cost', { act: 'prodNew', label: '+ New' }) + '<div class="page"><div class="card">' +
-      (ps.map(i => {
-        const c = D.recipeCost(i).total, mg = c > 0 && i.price ? Math.round((i.price - c) / c * 100) : null;
-        return '<div class="row" data-act="goto" data-n="recipe" data-id="' + i.id + '"><div class="ico blue">' + ic('pack') + '</div><div class="main"><div class="t">' + esc(i.name) + '</div><div class="s">Cost ' + money(c) + ' · Sell ' + (i.price ? money(i.price) : '—') + (mg !== null ? ' · ' + mg + '% profit' : '') + '</div><div class="s">In stock: ' + qf(i.stock) + ' ' + i.unit + '</div></div><button class="btn sm primary" data-act="makeOpen" data-id="' + i.id + '">Make</button></div>';
-      }).join('') || empty('pack', 'No products yet', 'A product is a packed item you sell, like "Dates 500g".', '<br><button class="btn primary" style="margin-top:12px" data-act="prodNew">Create first product</button>')) + '</div></div>';
+  SCREENS.purchases = () => top('Purchase History', D.state.purchases.length + ' entries') + '<div class="page"><div class="card">' +
+    (D.state.purchases.slice().sort((a, b) => b.ts - a.ts).slice(0, 100).map(pu => '<div class="row" data-act="purOpen" data-id="' + pu.id + '"><div class="ico gold">' + ic('cart') + '</div><div class="main"><div class="t">' + esc(pu.vendorName) + '</div><div class="s">' + esc(pu.no) + ' · ' + fmtDate(pu.date) + ' · ' + pu.lines.map(l => esc(l.name)).join(', ') + '</div></div><div class="end"><b>' + money(pu.total) + '</b>' + (pu.total - pu.paid > 0.005 ? '<span class="pill warn">Unpaid ' + money(D.r2(pu.total - pu.paid)) + '</span>' : '<span class="pill">Paid</span>') + '</div></div>').join('') || empty('cart', 'No purchases yet', 'Use "Buy Stock" to add one.')) + '</div></div>';
+  /* ---------- PACK PRODUCTS ---------- */
+  SCREENS.pack = () => {
+    const ok = D.rawsWithPacks(), no = D.rawItems().filter(r => !ok.includes(r));
+    return top('Pack Products', 'Choose the raw material to pack') + '<div class="page"><div class="card">' +
+      (ok.map(r => '<div class="row" data-act="goto" data-n="packRaw" data-id="' + r.id + '"><div class="ico">' + ic('box') + '</div><div class="main"><div class="t">' + esc(r.name) + '</div><div class="s">Sizes: ' + D.packGroups(r.id).map(g => g.label).join(', ') + '</div></div><div class="end"><b>' + qf(r.stock) + ' ' + r.unit + '</b></div></div>').join('') ||
+        empty('pack', 'Nothing to pack yet', 'First buy a raw material and its packaging (pouch, label...).', '<br><button class="btn primary" style="margin-top:12px" data-act="goto" data-n="buyMenu">Buy Stock</button>')) + '</div>' +
+      (ok.length && no.length ? '<div class="note">No packaging bought yet for: ' + no.map(r => esc(r.name)).join(', ') + '</div>' : '') +
+      '<button class="btn ghost block" style="margin-top:6px" data-act="goto" data-n="packings">' + ic('clip') + 'Packing history</button></div>';
   };
-  function calcRecipe(r) {
-    const it = D.item(r.id);
-    const lines = r.lines.map(l => { const m = D.item(l.itemId); return { l, m, cost: D.r2(D.conv(num(l.qty), l.unit, m.unit) * m.cost) }; });
-    const total = D.r2(D.sum(lines.map(x => x.cost)) + num(r.other));
-    const sug = Math.ceil(total * (1 + num(r.margin) / 100));
-    const price = r.price === '' ? 0 : num(r.price);
-    return { it, lines, total, sug, price, profit: D.r2(price - total), pct: total > 0 ? Math.round((price - total) / total * 100) : 0, zero: lines.some(x => x.m.cost <= 0) };
+  const packEntries = () => Object.keys(S.pack.counts).map(k => ({ key: k, count: num(S.pack.counts[k]), price: num(S.pack.prices[k]) }));
+  const packNow = () => D.packPlan(S.pack.rawId, packEntries(), num(S.pack.extra));
+  function packTotals() {
+    const pl = packNow(), raw = pl.raw;
+    const sale = D.r2(D.sum(pl.rows.map(r => r.count * r.price)));
+    return (pl.rawNeed ? '<div class="r"><span>' + esc(raw.name) + ' needed</span><b class="' + (raw.stock + 1e-9 < pl.rawNeed ? 'neg' : '') + '">' + qf(pl.rawNeed) + ' ' + raw.unit + ' <span class="mut" style="font-weight:400">(have ' + qf(raw.stock) + ')</span></b></div>' : '') +
+      Object.keys(pl.packNeed).map(id => { const p = D.item(id); return '<div class="r"><span>' + esc(p.name) + '</span><b class="' + (p.stock + 1e-9 < pl.packNeed[id] ? 'neg' : '') + '">' + qf(pl.packNeed[id]) + ' pcs <span class="mut" style="font-weight:400">(have ' + qf(p.stock) + ')</span></b></div>'; }).join('') +
+      '<div class="r big"><span>Total cost</span><b>' + money(pl.totalCost) + '</b></div>' + (sale ? '<div class="r"><span>Selling value</span><b>' + money(sale) + '</b></div><div class="r"><span>Expected profit</span><b>' + money(D.r2(sale - pl.totalCost)) + '</b></div>' : '') +
+      (pl.short.length ? '<div class="note red" style="margin-top:8px">Not enough stock. Buy more or make fewer packets.</div>' : '');
   }
-  function recipeLine(l, i) {
-    const m = D.item(l.itemId), us = D.compat(m.unit);
-    return '<div class="line"><div class="head"><b>' + esc(m.name) + '</b><span class="mut" style="font-size:12px">' + money(D.r2(m.cost)) + '/' + m.unit + '</span><button class="x" data-act="lineDel" data-d="recipe" data-i="' + i + '">×</button></div>' +
-      '<div class="two"><div class="field"><label>Quantity per piece</label><input type="number" inputmode="decimal" step="any" value="' + esc(l.qty) + '" data-in="line" data-d="recipe" data-i="' + i + '" data-f="qty"></div>' +
-      '<div class="field"><label>Unit</label>' + (us.length > 1 ? '<select data-ch="unit" data-d="recipe" data-i="' + i + '">' + us.map(u => '<option' + (u === l.unit ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>' : '<input value="' + l.unit + '" disabled>') + '</div></div>' +
-      '<div class="amt" data-out="amt-recipe-' + i + '">Cost ' + money(D.r2(D.conv(num(l.qty), l.unit, m.unit) * m.cost)) + '</div></div>';
+  function packRowInfo(g, pl) {
+    const row = pl.rows.find(r => r.group === g || r.key === g.key);
+    const cost = row ? row.cost : D.packetCost(S.pack.rawId, g).total, price = num(S.pack.prices[String(g.key)]);
+    return 'Cost per packet ' + money(D.r2(cost)) + (price > 0 ? ' · Profit ' + money(D.r2(price - cost)) + ' (' + (cost > 0 ? Math.round((price - cost) / cost * 100) : 0) + '%)' : '');
   }
-  const recipeLines = () => S.recipe.lines.map(recipeLine).join('') || '<div class="empty" style="padding:14px">Add what goes into one piece: the raw material and packaging.</div>';
-  const recipeTotals = () => {
-    const c = calcRecipe(S.recipe);
-    return '<div class="r"><span>Cost of one piece</span><b>' + money(c.total) + '</b></div><div class="r"><span>Suggested price (' + num(S.recipe.margin) + '% profit)</span><b>' + money(c.sug) + '</b></div>' +
-      '<div class="r big"><span>Your profit per piece</span><b>' + money(c.profit) + (c.total > 0 ? ' (' + c.pct + '%)' : '') + '</b></div>';
-  };
-  SCREENS.recipe = p => {
-    const it = D.item(p.id);
-    if (!S.recipe || S.recipe.id !== it.id) {
-      const rc = it.recipe || { lines: [], other: 0, margin: 30 };
-      S.recipe = { id: it.id, lines: rc.lines.map(l => ({ itemId: l.itemId, qty: String(l.qty), unit: l.unit })), other: rc.other ? String(rc.other) : '', margin: String(rc.margin), price: it.price ? String(it.price) : '' };
+  SCREENS.packRaw = p => {
+    const raw = D.item(p.id);
+    if (!raw || raw.kind !== 'raw') return top('Pack', '') + '<div class="page">' + empty('pack', 'Not found') + '</div>';
+    if (!S.pack || S.pack.rawId !== raw.id) {
+      S.pack = { rawId: raw.id, counts: {}, prices: {}, extra: '' };
+      D.packGroups(raw.id).forEach(g => { if (g.product && g.product.price) S.pack.prices[String(g.key)] = String(g.product.price); });
     }
-    const r = S.recipe, c = calcRecipe(r);
-    return top(it.name, 'Recipe, cost and price') + '<div class="page">' +
-      '<div class="card"><h3>Ingredients for ONE piece</h3><div id="lines">' + recipeLines() + '</div><button class="btn block" data-act="recipeAdd">' + ic('plus') + 'Add ingredient / packaging</button></div>' +
-      '<div class="card"><div class="field"><label>Other cost per piece (₹): labour, gas, sticker...</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(r.other) + '" data-in="f" data-d="recipe" data-f="other"></div>' +
-      '<div class="field"><label>Profit you want (%)</label><input type="number" inputmode="decimal" value="' + esc(r.margin) + '" data-in="f" data-d="recipe" data-f="margin"></div></div>' +
-      (c.zero ? '<div class="note">Some ingredients have no cost yet. Use "Buy stock" first so the cost can be calculated.</div>' : '') +
-      '<div class="tbox" id="rtot">' + recipeTotals() + '</div>' +
-      '<div class="card"><div class="field"><label>Selling price (₹) of one piece</label><input id="rprice" type="number" inputmode="decimal" value="' + esc(r.price) + '" data-in="f" data-d="recipe" data-f="price"></div>' +
-      '<button class="btn gold block" data-act="useSug">Use suggested price</button></div>' +
-      '<div class="sticky-save"><button class="btn primary block" data-act="recipeSave">Save</button></div></div>';
+    const gs = D.packGroups(raw.id), pl = packNow();
+    return top('Pack ' + raw.name, 'In stock: ' + qf(raw.stock) + ' ' + raw.unit) + '<div class="page">' +
+      gs.map(g => {
+        const can = Math.floor(Math.min(raw.stock / g.key, D.packetCost ? Math.min.apply(null, g.packs.map(x => x.stock)) : 0) + 1e-9);
+        const k = String(g.key);
+        return '<div class="card"><h3>' + esc(raw.name) + ' ' + esc(g.label) + ' <small>can make ' + Math.max(can, 0) + '</small></h3>' +
+          '<div class="s mut" style="margin-bottom:10px;font-size:13px">Uses: ' + g.packs.map(x => esc(x.pname) + ' (have ' + qf(x.stock) + ')').join(' + ') + '</div>' +
+          '<div class="two"><div class="field"><label>Packets to make</label><input type="number" inputmode="numeric" placeholder="0" value="' + esc(S.pack.counts[k] || '') + '" data-in="pk" data-key="' + k + '" data-f="counts"></div>' +
+          '<div class="field"><label>Selling price ₹</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(S.pack.prices[k] || '') + '" data-in="pk" data-key="' + k + '" data-f="prices"></div></div>' +
+          '<div class="amt" data-out="pk-' + k + '">' + packRowInfo(g, pl) + '</div></div>';
+      }).join('') +
+      '<div class="card"><div class="field" style="margin-bottom:0"><label>Other cost for this packing: labour, gas... (₹)</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(S.pack.extra) + '" data-in="f" data-d="pack" data-f="extra"><div class="hint">Optional. Shared across the packets by weight.</div></div></div>' +
+      '<div class="tbox" id="ptot">' + packTotals() + '</div><div class="sticky-save"><button class="btn primary block" data-act="packSave">Pack now</button></div></div>';
   };
-  function makeSheet(id) {
-    S.makeId = id;
-    const it = D.item(id);
-    openSheet('<h2>Make ' + esc(it.name) + '</h2><p class="mut" style="margin-bottom:12px">Now in stock: ' + qf(it.stock) + ' ' + it.unit + '</p><div class="field"><label>How many pieces to make?</label><input id="mk-q" type="number" inputmode="decimal" placeholder="e.g. 20" data-in="makeq"></div><div id="mk-need"></div><button class="btn primary block" data-act="makeDo" data-id="' + id + '">Make now</button>');
-    updateMake();
-  }
-  function updateMake() {
-    const el = $('#mk-need'); if (!el) return;
-    const it = D.item(S.makeId), q = num($('#mk-q').value), rc = D.recipeCost(it);
-    if (!rc.lines.length) { el.innerHTML = '<div class="note red">This product has no recipe yet. Open the product and add ingredients.</div>'; return; }
-    el.innerHTML = '<div class="card" style="padding:8px 12px">' + rc.lines.map(l => {
-      const need = D.r3(l.qtyBase * q), ok = l.item.stock + 1e-9 >= need;
-      return '<div class="kv"><span>' + esc(l.item.name) + '</span><b class="' + (ok ? '' : 'neg') + '">' + qf(need) + ' ' + l.item.unit + ' <span class="mut" style="font-weight:400">(have ' + qf(l.item.stock) + ')</span></b></div>';
-    }).join('') + '<div class="kv"><span>Cost for all</span><b>' + money(D.r2(rc.total * q)) + '</b></div></div>';
-  }
+  SCREENS.packings = () => top('Packing History', D.state.batches.length + ' entries') + '<div class="page"><div class="card">' +
+    (D.state.batches.slice().sort((a, b) => b.ts - a.ts).slice(0, 100).map(b => '<div class="row" data-act="batchOpen" data-id="' + b.id + '"><div class="ico blue">' + ic('pack') + '</div><div class="main"><div class="t">' + esc(b.rawName) + '</div><div class="s">' + fmtDate(b.date) + ' · ' + b.entries.map(e => e.count + ' × ' + esc(e.name.replace(b.rawName, '').trim())).join(', ') + '</div></div><div class="end"><b>' + money(b.total) + '</b></div></div>').join('') || empty('pack', 'Nothing packed yet', 'Use "Pack Products" to start.')) + '</div></div>';
 
   /* ---------- ORDERS ---------- */
   function calcOrder(o) {
@@ -617,12 +645,12 @@
       (pr.phone ? '<a class="btn" style="text-decoration:none" href="tel:' + esc(pr.phone) + '">' + ic('phone') + 'Call</a>' : '') + '</div>' +
       (cust && pr.balance > 0.005 && pr.phone ? '<button class="btn ghost block" style="margin-bottom:10px" data-act="remind" data-id="' + pr.id + '">Send reminder on WhatsApp</button>' : '') +
       '<div class="btns" style="margin-bottom:14px"><button class="btn ghost" data-act="personEdit" data-kind="' + k + '" data-id="' + pr.id + '">Edit</button><button class="btn danger" data-act="personDel" data-kind="' + k + '" data-id="' + pr.id + '">Remove</button></div>' +
-      '<div class="card"><h3>History</h3>' + (pr.ledger.slice().reverse().slice(0, 60).map(e => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(e.desc) + '</div><div class="s">' + fmtDate(e.date) + (e.method ? ' · ' + esc(e.method) : '') + '</div></div><div class="end"><b class="' + (e.amt > 0 ? 'neg' : 'pos') + '">' + (e.amt > 0 ? '+' : '-') + money(Math.abs(e.amt)) + '</b><div class="s">Balance ' + money(e.bal) + '</div></div></div>').join('') || '<div class="empty" style="padding:14px">No history yet</div>') + '</div></div>';
+      '<div class="card"><h3>History</h3>' + (pr.ledger.slice().reverse().slice(0, 60).map(e => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(e.desc) + '</div><div class="s">' + fmtDate(e.date) + (e.method ? ' · ' + esc(e.method) : '') + '</div></div><div class="end"><b class="' + (e.amt > 0 ? 'neg' : 'pos') + '">' + (e.amt > 0 ? '+' : '-') + money(Math.abs(e.amt)) + '</b><div class="s">Balance ' + money(e.bal) + '</div>' + (['opening', 'payment', 'advance'].includes(e.type) && !e.ref ? '<button class="btn sm danger" style="margin-top:4px" data-act="ledDel" data-kind="' + k + '" data-p="' + pr.id + '" data-e="' + e.id + '">Delete</button>' : '') + '</div></div>').join('') || '<div class="empty" style="padding:14px">No history yet</div>') + '</div></div>';
   };
 
   /* ---------- MORE / REPORTS / SETTINGS ---------- */
   SCREENS.more = () => top('More', 'Everything else') + '<div class="page"><div class="card">' +
-    [['cart', 'gold', 'Buy stock', 'Enter purchases from vendors', 'buy'], ['pack', 'blue', 'Make products', 'Recipe, cost and packing', 'make'], ['clip', 'gold', 'Advance orders', 'Orders with advance payment', 'orders'], ['receipt', '', 'All bills', 'Search old bills', 'invoices'], ['cart', '', 'Purchase history', 'What you bought before', 'purchases'], ['chart', '', 'Reports', 'Sales, profit, cash', 'reports'], ['gear', '', 'Settings & backup', 'Logo, address, backup', 'settings']]
+    [['cart', 'gold', 'Buy Stock', 'Raw material and packaging', 'buyMenu'], ['pack', 'blue', 'Pack Products', 'Turn raw material into packets', 'pack'], ['clip', 'gold', 'Advance orders', 'Orders with advance payment', 'orders'], ['receipt', '', 'All bills', 'Search old bills', 'invoices'], ['cart', '', 'Purchase history', 'What you bought before', 'purchases'], ['clip', '', 'Packing history', 'What you packed before', 'packings'], ['chart', '', 'Reports', 'Sales, profit, cash', 'reports'], ['gear', '', 'Settings & backup', 'Logo, address, backup', 'settings']]
       .map(a => '<div class="row" data-act="goto" data-n="' + a[4] + '"><div class="ico ' + a[1] + '">' + ic(a[0]) + '</div><div class="main"><div class="t">' + a[2] + '</div><div class="s">' + a[3] + '</div></div></div>').join('') + '</div></div>';
 
   function range(f) {
@@ -650,7 +678,7 @@
       (NATIVE ? '<div class="card"><h3>App update <small>build ' + BUILD + '</small></h3>' + (S.upd ? '<div class="note green">A new version is available (build ' + S.upd.build + ').</div><button class="btn primary block" data-act="updNow">Update now</button>' : '<p class="mut" style="margin-bottom:12px;font-size:14px">Your app is up to date.</p><button class="btn block" data-act="updCheck">Check for update</button>') + '</div>' : '') +
       '<div class="card"><h3>Backup</h3><p class="mut" style="margin-bottom:12px;font-size:14px">All data is stored on this phone only. Download a backup often and keep it safe, for example in Google Drive.' + (s.lastBackup ? ' Last backup: ' + fmtDate(s.lastBackup.slice(0, 10)) + '.' : ' You have not made a backup yet.') + '</p>' +
       '<div class="btns"><button class="btn gold" data-act="backup">Download backup</button><button class="btn" data-act="restorePick">Restore</button></div><input type="file" id="restoreFile" accept=".json,application/json" class="hidden"></div>' +
-      '<div class="card"><h3>Danger zone</h3><button class="btn danger block" data-act="resetAll">Delete all data</button></div></div>';
+      '<div class="card"><h3>Danger zone</h3><p class="mut" style="margin-bottom:12px;font-size:14px">Testing is over? Clear everything and start fresh.</p><button class="btn danger block" data-act="resetAll">Delete all business data</button><button class="btn ghost block" style="margin-top:8px" data-act="resetAll" data-full="1">Delete everything (including company details)</button></div></div>';
   };
 
   /* ---------- live updates (no re-render, keeps keyboard open) ---------- */
@@ -665,33 +693,36 @@
     order() { const e = $('#otot'); if (e) e.innerHTML = orderTotals(); },
     buy() {
       const e = $('#utot'); if (!e) return;
-      e.innerHTML = buyTotals();
-      const pi = $('#paidIn'); if (pi && S.buy.paid === null && document.activeElement !== pi) pi.value = calcBuy(S.buy).total;
+      const c = calcBuy(S.buy);
+      e.innerHTML = buyTotals(c);
+      S.buy.lines.forEach((l, i) => { const o = $('[data-out="info-' + i + '"]'); if (o) o.innerHTML = buyInfo(l, c); });
+      const pi = $('#paidIn'); if (pi && S.buy.paid === null && document.activeElement !== pi) pi.value = c.total;
     },
-    recipe() { const e = $('#rtot'); if (e) e.innerHTML = recipeTotals(); }
+    pack() {
+      const e = $('#ptot'); if (!e) return;
+      e.innerHTML = packTotals();
+      const pl = packNow();
+      D.packGroups(S.pack.rawId).forEach(g => { const o = $('[data-out="pk-' + g.key + '"]'); if (o) o.textContent = packRowInfo(g, pl); });
+    }
   };
+  const LINES = { bill: () => sellLines('bill'), order: () => sellLines('order'), buy: buyLines };
 
   /* ---------- events ---------- */
   const ACT = {
-    back() { if (S.stack.length) history.back(); else tab('home'); },
+    back() { if (!goBack()) tab('home'); },
     tab(el) {
       const t = el.dataset.t;
       if (t === 'bill') { if (cur.n === 'bill') return; S.stack = []; cur = { n: 'bill', p: {} }; draw(); } else tab(t);
     },
-    goto(el) { go(el.dataset.n, { id: el.dataset.id, kind: el.dataset.kind, item: el.dataset.item }); },
+    goto(el) { go(el.dataset.n, { id: el.dataset.id, kind: el.dataset.kind }); },
     goPeople(el) { S.flt.people = el.dataset.v; tab('people'); },
     confYes() { const r = S.conf; S.conf = null; closeSheet(); if (r) r(true); },
     confNo() { closeSheet(); },
     method(el) { S[el.dataset.d].method = el.dataset.v; draw(true); },
-    lineDel(el) { const d = el.dataset.d; S[d].lines.splice(+el.dataset.i, 1); $('#lines').innerHTML = ({ bill: () => sellLines('bill'), order: () => sellLines('order'), buy: buyLines, recipe: recipeLines })[d](); UPD[d](); },
+    lineDel(el) { const d = el.dataset.d; S[d].lines.splice(+el.dataset.i, 1); $('#lines').innerHTML = LINES[d](); UPD[d](); },
     addLine(el) { pickItem(['raw', 'product'], id => addSellLine(el.dataset.d, id)); },
     pickDo(el) { const cb = S.pick.cb; closeSheet(); cb(el.dataset.id); },
-    pickNone() { const cb = S.pick.cb; closeSheet(); cb(''); },
-    pickNew() {
-      const pk = S.pick;
-      if (pk.kind === 'item') itemForm(null, { kind: pk.kinds[0], onDone: it => pk.cb(it.id) });
-      else personForm(pk.pk, null, { onDone: p => pk.cb(p.id) });
-    },
+    pickNew() { const pk = S.pick; personForm(pk.pk, null, { onDone: p => pk.cb(p.id) }); },
     /* bill */
     billCust() { pickPerson('customers', id => { S.bill.customerId = id; S.bill.paid = null; draw(true); }); },
     billClear() { S.bill = null; draw(); },
@@ -730,68 +761,97 @@
       } catch (e) { toast(e.message, 1); }
     },
     async invVoid(el) {
-      const ok = await confirmSheet({ title: 'Cancel this bill?', text: 'Stock will be added back and the customer account will be corrected. Any money paid is treated as refunded.', ok: 'Cancel bill', danger: true });
+      const ok = await confirmSheet({ title: 'Cancel this bill?', text: 'Stock will be added back and the customer account will be corrected. Any money paid is treated as refunded. The bill stays in the list marked Cancelled.', ok: 'Cancel bill', danger: true });
       if (!ok) return;
       try { D.voidInvoice(el.dataset.id); toast('Bill cancelled'); draw(true); } catch (e) { toast(e.message, 1); }
     },
+    async invDel(el) {
+      const ok = await confirmSheet({ title: 'Delete this bill?', text: 'The bill disappears completely, as if it was never made. Stock comes back and the customer account is corrected.', ok: 'Delete bill', danger: true });
+      if (!ok) return;
+      try { D.deleteInvoice(el.dataset.id); toast('Bill deleted'); if (!goBack()) tab('home'); } catch (e) { toast(e.message, 1); }
+    },
     /* stock & items */
-    itemNew() { itemForm(null, { kind: S.flt.stock === 'pack' ? 'pack' : S.flt.stock === 'product' ? 'product' : 'raw' }); },
-    prodNew() { itemForm(null, { kind: 'product' }); },
     itemEdit(el) { itemForm(el.dataset.id); },
     itemSave(el) {
       try {
-        const id = el.dataset.id, v = s => $(s).value;
-        let it;
-        if (id) it = D.updateItem(id, { name: v('#f-name'), price: v('#f-price'), low: v('#f-low') });
-        else {
-          it = D.addItem({ name: v('#f-name'), kind: v('#f-kind'), unit: v('#f-unit'), stock: v('#f-stock'), cost: v('#f-cost'), price: v('#f-price'), low: v('#f-low') });
-        }
-        const cb = S.formDone; S.formDone = null;
-        closeSheet(); toast('Saved');
-        if (cb) cb(it); else draw(true);
+        const id = el.dataset.id, it = D.item(id), v = s => $(s) ? $(s).value : null;
+        D.updateItem(id, { name: v('#f-name') === null ? it.name : v('#f-name'), price: v('#f-price') === null ? it.price : v('#f-price'), low: v('#f-low') });
+        closeSheet(); toast('Saved'); draw(true);
       } catch (e) { toast(e.message, 1); }
     },
     fsOpen(el) { fixStockSheet(el.dataset.id); },
     fsSave(el) { try { D.stockAdjust(el.dataset.id, $('#fs-v').value, $('#fs-r').value); closeSheet(); toast('Stock corrected'); draw(true); } catch (e) { toast(e.message, 1); } },
     async itemArchive(el) {
-      const ok = await confirmSheet({ title: 'Remove this item?', text: 'It will be hidden from lists. Old bills and history stay safe.', ok: 'Remove', danger: true });
-      if (!ok) return; D.archiveItem(el.dataset.id); toast('Removed'); history.back();
+      const it = D.item(el.dataset.id);
+      const ok = await confirmSheet({ title: 'Remove ' + it.name + '?', text: it.kind === 'raw' ? 'Its packaging and packed products are removed too. Old bills and history stay safe.' : 'It will be removed from the stock list. Old bills and history stay safe.', ok: 'Remove', danger: true });
+      if (!ok) return; D.removeItem(it.id); toast('Removed'); if (!goBack()) tab('stock');
     },
     fltStock(el) { S.flt.stock = el.dataset.v; draw(true); },
     /* buy */
-    buyVendor() { pickPerson('vendors', id => { S.buy.vendorId = id; draw(true); }, true); },
-    buyAdd() { pickItem(['raw', 'pack'], id => { const it = D.item(id); if (!S.buy.lines.some(l => l.itemId === id)) S.buy.lines.push({ itemId: id, qty: '', unit: it.unit, total: '' }); $('#lines').innerHTML = buyLines(); UPD.buy(); }); },
+    buyStart(el) {
+      const t = el.dataset.t;
+      if (t === 'pack' && !D.rawItems().length) return toast('First buy a raw material, then its packaging', 1);
+      S.buy = { lines: [newBuyLine(t)], extra: '', paid: null, from: '', method: 'Cash' };
+      go('buy');
+    },
+    buyMore(el) { S.buy = null; go('buy', { pre: el.dataset.id }); },
+    buyAdd(el) {
+      const t = el.dataset.t;
+      if (t === 'pack' && !D.rawItems().length && !S.buy.lines.some(l => l.type === 'raw' && D.clean(l.name))) return toast('Add the raw material first', 1);
+      S.buy.lines.push(newBuyLine(t)); $('#lines').innerHTML = buyLines(); UPD.buy();
+      const ls = $$('#lines .line'); if (ls.length) ls[ls.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    },
     buyClear() { S.buy = null; draw(); },
     buyPaidFull() { S.buy.paid = null; draw(true); },
     buyPaidNone() { S.buy.paid = '0'; draw(true); },
     buySave() {
       const b = S.buy, c = calcBuy(b);
       try {
-        const pu = D.purchase({ vendorId: b.vendorId, lines: b.lines.map(l => ({ itemId: l.itemId, qty: num(l.qty), unit: l.unit, total: num(l.total) })), extra: c.extra, paid: c.paid, method: b.method });
+        const pu = D.purchase({
+          from: b.from, extra: c.extra, paid: c.paid, method: b.method,
+          lines: b.lines.map(l => l.type === 'raw' ? { type: 'raw', name: l.name, unit: l.unit, qty: num(l.qty), total: D.r2(num(l.qty) * num(l.rate)) } :
+            { type: 'pack', rawName: l.rawName, size: num(l.size), sizeUnit: l.sizeUnit, pname: l.pname, qty: num(l.qty), total: num(l.total) })
+        });
         S.buy = null;
         openSheet('<div class="success"><div class="tick">' + ic('check') + '</div><b style="font-size:18px">Stock updated</b><p class="mut" style="margin:4px 0 12px">' + pu.no + ' · ' + money(pu.total) + '</p></div><div class="card" style="padding:8px 12px">' +
-          pu.lines.map(l => { const it = D.item(l.itemId); return '<div class="kv"><span>' + esc(it.name) + '</span><b>' + money(D.r2(it.cost)) + '/' + it.unit + '</b></div>'; }).join('') + '</div><p class="mut" style="font-size:12.5px;margin-bottom:12px">Cost per unit now (average of old and new stock).</p><button class="btn primary block" data-act="buyDone">Done</button>');
+          pu.lines.map(l => '<div class="kv"><span>' + esc(l.name) + '</span><b>' + money(l.perUnit) + '/' + (l.kind === 'pack' ? 'pc' : l.unit) + '</b></div>').join('') + '</div><p class="mut" style="font-size:12.5px;margin-bottom:12px">Real cost of this purchase, including the shared extra cost.</p><button class="btn primary block" data-act="buyDone">Done</button>');
       } catch (e) { toast(e.message, 1); }
     },
-    buyDone() { closeSheet(); tab('stock'); },
-    /* recipe / make */
-    recipeAdd() { pickItem(['raw', 'pack'], id => { const it = D.item(id); if (!S.recipe.lines.some(l => l.itemId === id)) S.recipe.lines.push({ itemId: id, qty: '', unit: it.unit }); $('#lines').innerHTML = recipeLines(); UPD.recipe(); }); },
-    useSug() { const c = calcRecipe(S.recipe); S.recipe.price = String(c.sug); $('#rprice').value = c.sug; UPD.recipe(); },
-    recipeSave() {
+    buyDone() { closeSheet(); S.flt.stock = 'all'; tab('stock'); },
+    purOpen(el) {
+      const pu = D.find('purchases', el.dataset.id);
+      openSheet('<h2>' + pu.no + ' · ' + esc(pu.vendorName) + '</h2><p class="mut" style="margin-bottom:8px">' + fmtDate(pu.date) + '</p><div class="card" style="padding:8px 12px">' +
+        pu.lines.map(l => '<div class="kv"><span>' + esc(l.name) + ' × ' + qf(l.qty) + ' ' + l.unit + '</span><b>' + money(l.total) + '</b></div>').join('') +
+        (pu.extra ? '<div class="kv"><span>Extra cost</span><b>' + money(pu.extra) + '</b></div>' : '') + '<div class="kv"><span>Total</span><b>' + money(pu.total) + '</b></div><div class="kv"><span>Paid</span><b>' + money(pu.paid) + '</b></div></div>' +
+        '<div class="btns"><button class="btn ghost" data-act="confNo">Close</button><button class="btn danger" data-act="purDel" data-id="' + pu.id + '">Delete</button></div>');
+    },
+    async purDel(el) {
+      const id = el.dataset.id; closeSheet();
+      const ok = await confirmSheet({ title: 'Delete this purchase?', text: 'The stock you added is taken out again and the vendor account is corrected.', ok: 'Delete', danger: true });
+      if (!ok) return; try { D.deletePurchase(id); toast('Purchase deleted'); draw(true); } catch (e) { toast(e.message, 1); }
+    },
+    /* pack */
+    packSave() {
       try {
-        const r = S.recipe, it = D.item(r.id);
-        D.setRecipe(r.id, { lines: r.lines.map(l => ({ itemId: l.itemId, qty: num(l.qty), unit: l.unit })), other: num(r.other), margin: r.margin === '' ? 30 : num(r.margin) });
-        D.updateItem(r.id, { name: it.name, price: num(r.price), low: it.low });
-        S.recipe = null; toast('Recipe saved'); history.back();
+        const b = D.pack({ rawId: S.pack.rawId, entries: packEntries(), extra: num(S.pack.extra) });
+        S.pack = null;
+        openSheet('<div class="success"><div class="tick">' + ic('check') + '</div><b style="font-size:18px">Packed</b><p class="mut" style="margin:4px 0 12px">Raw and packaging stock reduced automatically</p></div><div class="card" style="padding:8px 12px">' +
+          b.entries.map(e => '<div class="kv"><span>' + esc(e.name) + ' × ' + e.count + '</span><b>' + money(e.unitCost) + ' each</b></div>').join('') + '</div><button class="btn primary block" data-act="packDone">Done</button>');
       } catch (e) { toast(e.message, 1); }
     },
-    makeOpen(el) { makeSheet(el.dataset.id); },
-    makeDo(el) {
-      try {
-        const q = num($('#mk-q').value), it = D.item(el.dataset.id);
-        D.produce(el.dataset.id, q);
-        closeSheet(); toast('Made ' + qf(q) + ' × ' + it.name); draw(true);
-      } catch (e) { toast(e.message, 1); }
+    packDone() { closeSheet(); S.flt.stock = 'product'; tab('stock'); },
+    batchOpen(el) {
+      const b = D.find('batches', el.dataset.id);
+      openSheet('<h2>' + esc(b.rawName) + ' · ' + fmtDate(b.date) + '</h2><div class="card" style="padding:8px 12px">' +
+        b.entries.map(e => '<div class="kv"><span>' + esc(e.name) + '</span><b>' + e.count + ' pcs</b></div>').join('') +
+        '<div class="kv"><span>' + esc(b.rawName) + ' used</span><b>' + qf(b.rawUsed) + ' ' + b.rawUnit + '</b></div>' +
+        b.packUsed.map(u => '<div class="kv"><span>' + esc(u.name) + ' used</span><b>' + qf(u.qty) + ' pcs</b></div>').join('') + '</div>' +
+        '<div class="btns"><button class="btn ghost" data-act="confNo">Close</button><button class="btn danger" data-act="batchUndo" data-id="' + b.id + '">Undo packing</button></div>');
+    },
+    async batchUndo(el) {
+      const id = el.dataset.id; closeSheet();
+      const ok = await confirmSheet({ title: 'Undo this packing?', text: 'Raw material and packaging come back to stock, and the packed products are taken out.', ok: 'Undo', danger: true });
+      if (!ok) return; try { D.undoBatch(id); toast('Packing undone'); draw(true); } catch (e) { toast(e.message, 1); }
     },
     /* orders */
     orderNew() { S.order = null; go('orderNew'); },
@@ -800,7 +860,7 @@
       const o = S.order;
       try {
         D.order({ customerId: o.customerId, lines: o.lines.map(l => Object.assign({}, l)), advance: num(o.advance), method: o.method, deliveryDate: o.deliveryDate });
-        S.order = null; toast('Order saved'); S.flt.orders = 'pending'; history.back();
+        S.order = null; toast('Order saved'); S.flt.orders = 'pending'; goBack();
       } catch (e) { toast(e.message, 1); }
     },
     fltOrders(el) { S.flt.orders = el.dataset.v; draw(true); },
@@ -809,7 +869,8 @@
       openSheet('<h2>' + o.no + ' · ' + esc(o.customerName) + '</h2>' + (o.deliveryDate ? '<p class="mut" style="margin-bottom:8px">Deliver on ' + fmtDate(o.deliveryDate) + '</p>' : '') +
         '<div class="card" style="padding:8px 12px">' + o.lines.map(l => '<div class="kv"><span>' + esc(l.name) + ' × ' + qf(l.qty) + ' ' + l.unit + '</span><b>' + money(l.amount) + '</b></div>').join('') +
         '<div class="kv"><span>Total</span><b>' + money(o.total) + '</b></div><div class="kv"><span>Advance received</span><b>' + money(o.advance) + '</b></div><div class="kv"><span>Balance on delivery</span><b>' + money(D.r2(o.total - o.advance)) + '</b></div></div>' +
-        (o.status === 'pending' ? '<div class="btns"><button class="btn danger" data-act="orderCancel" data-id="' + o.id + '">Cancel</button><button class="btn primary" data-act="orderDeliver" data-id="' + o.id + '">Deliver & bill</button></div>' : ''));
+        (o.status === 'pending' ? '<div class="btns"><button class="btn danger" data-act="orderCancel" data-id="' + o.id + '">Cancel</button><button class="btn primary" data-act="orderDeliver" data-id="' + o.id + '">Deliver & bill</button></div>' : '') +
+        (o.status !== 'delivered' ? '<button class="btn ghost block" style="margin-top:10px" data-act="orderDel" data-id="' + o.id + '">Delete this order</button>' : '<p class="mut" style="font-size:13px">Delivered. To remove it, delete its bill first.</p>'));
     },
     orderDeliver(el) { closeSheet(); S.bill = null; go('bill', { orderId: el.dataset.id }); },
     async orderCancel(el) {
@@ -817,6 +878,11 @@
       closeSheet();
       const ok = await confirmSheet({ title: 'Cancel order?', text: o.advance ? 'The advance of ' + money(o.advance) + ' will be refunded in the customer account.' : 'This order will be cancelled.', ok: 'Cancel order', danger: true });
       if (!ok) return; try { D.cancelOrder(o.id); toast('Order cancelled'); draw(true); } catch (e) { toast(e.message, 1); }
+    },
+    async orderDel(el) {
+      const id = el.dataset.id; closeSheet();
+      const ok = await confirmSheet({ title: 'Delete this order?', text: 'It disappears completely. Any advance taken for it is removed from the customer account.', ok: 'Delete', danger: true });
+      if (!ok) return; try { D.deleteOrder(id); toast('Order deleted'); draw(true); } catch (e) { toast(e.message, 1); }
     },
     /* people */
     fltPeople(el) { S.flt.people = el.dataset.v; draw(true); },
@@ -833,16 +899,20 @@
       } catch (e) { toast(e.message, 1); }
     },
     async personDel(el) {
-      const ok = await confirmSheet({ title: 'Remove?', text: 'Hidden from lists. History stays saved.', ok: 'Remove', danger: true });
-      if (!ok) return; D.removePerson(el.dataset.kind, el.dataset.id); toast('Removed'); history.back();
+      const ok = await confirmSheet({ title: 'Remove?', text: 'If they have no history they are deleted. Otherwise they are hidden and history stays saved.', ok: 'Remove', danger: true });
+      if (!ok) return; D.removePerson(el.dataset.kind, el.dataset.id); toast('Removed'); if (!goBack()) tab('people');
+    },
+    async ledDel(el) {
+      const ok = await confirmSheet({ title: 'Delete this entry?', text: 'The balance will be calculated again without it.', ok: 'Delete', danger: true });
+      if (!ok) return; try { D.deleteLedgerEntry(el.dataset.kind, el.dataset.p, el.dataset.e); toast('Deleted'); draw(true); } catch (e) { toast(e.message, 1); }
     },
     payOpen(el) { paySheet(el.dataset.kind, el.dataset.id, !!el.dataset.adv); },
     paySave(el) {
       try { D.payment(el.dataset.kind, el.dataset.id, $('#pay-amt').value, $('#pay-m').value, $('#pay-n').value, !!el.dataset.adv); closeSheet(); toast('Saved'); draw(true); } catch (e) { toast(e.message, 1); }
     },
     custBill(el) { S.bill = null; go('bill', { customerId: el.dataset.id }); },
-    custOrder(el) { S.order = null; S.order = { customerId: el.dataset.id, lines: [], deliveryDate: '', advance: '', method: 'Cash', note: '' }; go('orderNew'); },
-    vendBuy(el) { S.buy = null; go('buy', { vendorId: el.dataset.id }); },
+    custOrder(el) { S.order = { customerId: el.dataset.id, lines: [], deliveryDate: '', advance: '', method: 'Cash', note: '' }; go('orderNew'); },
+    vendBuy() { go('buyMenu'); },
     remind(el) {
       const p = D.find('customers', el.dataset.id), s = D.state.settings;
       openLink(waLink(p.phone, 'Hello ' + p.name + ', a gentle reminder from ' + s.name + ': your balance due is ' + money(p.balance) + '.' + (s.upi ? ' You can pay by UPI: ' + s.upi + '.' : '') + ' Thank you!'));
@@ -873,12 +943,12 @@
       } catch (e) { toast(e.message, 1); }
     },
     restorePick() { $('#restoreFile').click(); },
-    async resetAll() {
-      const ok = await confirmSheet({ title: 'Delete ALL data?', text: 'Items, bills, customers, vendors, everything will be erased from this phone. Download a backup first!', ok: 'Delete everything', danger: true });
-      if (!ok) return; D.resetAll(); S.bill = S.buy = S.order = S.recipe = null; toast('All data deleted'); tab('home');
+    async resetAll(el) {
+      const full = !!el.dataset.full;
+      const ok = await confirmSheet({ title: full ? 'Delete EVERYTHING?' : 'Delete all business data?', text: (full ? 'Everything, including your company name, address and logo, ' : 'Items, purchases, bills, customers and vendors ') + 'will be erased from this phone. ' + (full ? '' : 'Your company details are kept. ') + 'Download a backup first if you may need it!', ok: 'Delete', danger: true });
+      if (!ok) return; D.resetAll(!full); S.bill = S.buy = S.order = S.pack = null; toast('All data deleted'); tab('home');
     }
   };
-
   document.addEventListener('click', e => {
     const el = e.target.closest('[data-act]');
     if (!el || !ACT[el.dataset.act]) return;
@@ -893,35 +963,44 @@
     if (k === 'line') {
       const d = t.dataset.d, l = S[d].lines[+t.dataset.i];
       l[t.dataset.f] = t.value;
-      const out = $('[data-out="amt-' + d + '-' + t.dataset.i + '"]');
-      if (out) {
-        if (d === 'buy') out.textContent = buyRate(l);
-        else if (d === 'recipe') out.textContent = 'Cost ' + money(D.r2(D.conv(num(l.qty), l.unit, D.item(l.itemId).unit) * D.item(l.itemId).cost));
-        else out.textContent = money(num(l.qty) * num(l.rate));
+      if (d === 'buy') { if (t.dataset.f === 'rate' || t.dataset.f === 'qty' || t.dataset.f === 'total' || t.dataset.f === 'size') UPD.buy(); }
+      else {
+        const out = $('[data-out="amt-' + d + '-' + t.dataset.i + '"]');
+        if (out) out.textContent = money(num(l.qty) * num(l.rate));
+        UPD[d]();
       }
-      UPD[d]();
     } else if (k === 'f') {
       S[t.dataset.d][t.dataset.f] = t.value;
       UPD[t.dataset.d]();
+    } else if (k === 'pk') {
+      S.pack[t.dataset.f][t.dataset.key] = t.value;
+      UPD.pack();
     } else if (k === 'q') {
       S.q[t.dataset.k] = t.value;
       const L = { stock: stockList, people: peopleList, inv: invList }[t.dataset.k];
       if (L) $('#list').innerHTML = L();
     } else if (k === 'pq') {
       $('#plist').innerHTML = S.pick.kind === 'item' ? pickItems(t.value) : pickPeople(t.value);
-    } else if (k === 'makeq') updateMake();
+    }
   });
 
   document.addEventListener('change', e => {
-    const t = e.target;
-    if (t.dataset.ch === 'unit') {
-      const d = t.dataset.d, l = S[d].lines[+t.dataset.i], it = D.item(l.itemId);
-      if (d !== 'buy' && d !== 'recipe') {
+    const t = e.target, ch = t.dataset.ch;
+    if (ch === 'unit') {
+      const d = t.dataset.d, l = S[d].lines[+t.dataset.i];
+      if (d !== 'buy') {
+        const it = D.item(l.itemId);
         l.rate = it.price ? String(+(it.price * D.conv(1, t.value, it.unit)).toPrecision(6)) : l.rate;
       }
       l.unit = t.value;
-      $('#lines').innerHTML = ({ bill: () => sellLines('bill'), order: () => sellLines('order'), buy: buyLines, recipe: recipeLines })[d]();
-      UPD[d]();
+      $('#lines').innerHTML = LINES[d](); UPD[d]();
+    } else if (ch === 'sunit') {
+      S.buy.lines[+t.dataset.i].sizeUnit = t.value; UPD.buy();
+    } else if (ch === 'packraw') {
+      const l = S.buy.lines[+t.dataset.i]; l.rawName = t.value; l.sizeUnit = '';
+      $('#lines').innerHTML = buyLines(); UPD.buy();
+    } else if (ch === 'rname') {
+      if (S.buy.lines.some(l => l.type === 'pack') || D.findRaw(t.value)) { $('#lines').innerHTML = buyLines(); UPD.buy(); }
     } else if (t.id === 'logoFile' && t.files[0]) {
       const r = new FileReader();
       r.onload = () => {
@@ -941,17 +1020,16 @@
       r.onload = async () => {
         const ok = await confirmSheet({ title: 'Restore this backup?', text: 'All data on this phone will be replaced by the backup file.', ok: 'Restore', danger: true });
         if (!ok) return;
-        try { D.importJSON(r.result); S.bill = S.buy = S.order = S.recipe = null; toast('Backup restored'); tab('home'); } catch (err) { toast(err.message, 1); }
+        try { D.importJSON(r.result); S.bill = S.buy = S.order = S.pack = null; toast('Backup restored'); tab('home'); } catch (err) { toast(err.message, 1); }
       };
       r.readAsText(f);
     }
   });
 
   /* ---------- start ---------- */
-  if (D.lastError) toast(D.lastError, 1);
+  if (D.lastError) toast(D.lastError, 1); else if (D.notice) toast(D.notice);
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
   if (!NATIVE && 'serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { }));
-  history.replaceState({}, '');
   draw();
   if (NATIVE) setTimeout(() => checkUpdate(false), 1500);
 })();
