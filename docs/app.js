@@ -483,9 +483,9 @@
   }
   const smallUnit = u => ({ kg: 'g', g: 'g', litre: 'ml', ml: 'ml', pcs: 'pcs' }[u] || u);
   function calcBuy(b) {
-    const sub = D.r2(D.sum(b.lines.map(lineTotal))), extra = num(b.extra), total = D.r2(sub + extra);
-    const paid = b.paid === null ? total : num(b.paid);
-    return { sub, extra, total, paid, bal: D.r2(total - paid), n: b.lines.length };
+    const sub = D.r2(D.sum(b.lines.map(lineTotal))), extra = D.r2(D.sum(b.extras.map(e => num(e.amt)))), total = D.r2(sub + extra);
+    const paid = b.paid === null ? sub : num(b.paid);
+    return { sub, extra, total, paid, bal: D.r2(sub - paid), n: b.lines.length };
   }
   function buyInfo(l, c) {
     const q = num(l.qty), t = lineTotal(l);
@@ -521,9 +521,10 @@
       '<div class="two">' + inp('qty', 'Pieces bought', '0') + inp('total', 'Total price ₹', '0') + '</div><div class="amt" data-out="info-' + i + '">' + buyInfo(l, c) + '</div></div>';
   }
   const buyLines = () => { const c = calcBuy(S.buy); return S.buy.lines.map((l, i) => buyLine(l, i, c)).join('') || '<div class="empty" style="padding:14px">Add what you bought.</div>'; };
-  const buyTotals = c => '<div class="r"><span>Items</span><b>' + money(c.sub) + '</b></div>' + (c.extra ? '<div class="r"><span>Extra cost (shared)</span><b>' + money(c.extra) + '</b></div>' : '') +
-    '<div class="r big"><span>Total</span><b>' + money(c.total) + '</b></div><div class="r"><span>Paid now</span><b>' + money(c.paid) + '</b></div>' +
-    '<div class="r"><span>' + (c.bal < -0.005 ? 'Extra paid (advance to vendor)' : 'Unpaid (vendor due)') + '</span><b>' + money(Math.abs(c.bal)) + '</b></div>';
+  const buyTotals = c => '<div class="r"><span>Items (to pay the seller)</span><b>' + money(c.sub) + '</b></div>' + (c.extra ? '<div class="r"><span>Extra costs (you paid yourself)</span><b>' + money(c.extra) + '</b></div><div class="r"><span>Real total cost</span><b>' + money(c.total) + '</b></div>' : '') +
+    '<div class="r big"><span>Paid to seller</span><b>' + money(c.paid) + '</b></div>' +
+    '<div class="r"><span>' + (c.bal < -0.005 ? 'Advance given to seller' : 'Still to pay the seller') + '</span><b>' + money(Math.abs(c.bal)) + '</b></div>';
+  const extraRows = () => S.buy.extras.map((e, i) => '<div class="two" style="grid-template-columns:1.4fr 1fr auto;align-items:end"><div class="field"><label>' + (i ? 'What for' : 'What for (optional)') + '</label><input placeholder="Transport, food..." value="' + esc(e.label) + '" data-in="ex" data-i="' + i + '" data-f="label"></div><div class="field"><label>Amount ₹</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(e.amt) + '" data-in="ex" data-i="' + i + '" data-f="amt"></div>' + (S.buy.extras.length > 1 ? '<button class="x" style="position:static;margin-bottom:14px" data-act="exDel" data-i="' + i + '">×</button>' : '<span></span>') + '</div>').join('');
 
   SCREENS.buyMenu = () => top('Buy Stock', 'What did you buy?') + '<div class="page">' +
     '<div class="tiles"><button class="tile wide" data-act="buyStart" data-t="raw">' + ic('box') + '<span>Raw material<small>Dates, honey, oil, spices...</small></span></button>' +
@@ -532,7 +533,7 @@
     '<button class="btn ghost block" style="margin-top:6px" data-act="goto" data-n="purchases">' + ic('cart') + 'Purchase history</button></div>';
 
   SCREENS.buy = p => {
-    if (!S.buy) S.buy = { lines: [newBuyLine('raw')], extra: '', paid: null, from: '', method: 'Cash' };
+    if (!S.buy) S.buy = { lines: [newBuyLine('raw')], extras: [{ label: '', amt: '' }], paid: null, from: '', method: 'Cash' };
     if (p.pre) { const it = D.item(p.pre), b = S.buy; if (it) { const l = it.kind === 'raw' ? newBuyLine('raw', it.name) : Object.assign(newBuyLine('pack', D.item(it.rawId).name), { size: String(it.size), sizeUnit: it.sizeUnit, pname: it.pname }); if (it.kind === 'raw') l.unit = it.unit; b.lines = [l]; } }
     delete p.pre;
     const b = S.buy, c = calcBuy(b);
@@ -540,16 +541,16 @@
       '<datalist id="rawnames">' + D.rawItems().map(r => '<option value="' + esc(r.name) + '">').join('') + '</datalist><datalist id="packnames">' + ['Pouch', 'Label', 'Box', 'Bottle', 'Jar', 'Lid', 'Sticker'].map(n => '<option value="' + n + '">').join('') + '</datalist>' +
       '<div class="card"><h3>Items bought</h3><div id="lines">' + buyLines() + '</div>' +
       '<div class="btns"><button class="btn" data-act="buyAdd" data-t="raw">' + ic('plus') + 'Raw material</button><button class="btn gold" data-act="buyAdd" data-t="pack">' + ic('plus') + 'Packaging</button></div></div>' +
-      '<div class="card"><div class="field"><label>Extra cost for this trip: transport, food... (₹)</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(b.extra) + '" data-in="f" data-d="buy" data-f="extra"><div class="hint">Type it once. It is shared across all items by price, so every item shows its real cost.</div></div>' +
+      '<div class="card"><h3>Extra costs <small>transport, food...</small></h3><div id="extras">' + extraRows() + '</div><button class="btn sm ghost" data-act="exAdd">' + ic('plus') + 'Add another cost</button><div class="hint" style="margin:8px 0 14px">You paid these yourself, so they are not added to the seller\'s bill. They are shared across the items by price, so every item shows its real cost. Add as many as you like, the total is calculated for you.</div></div><div class="card">' +
       '<div class="field"><label>Bought from (optional)</label><input list="places" placeholder="Leave empty for market / cash" value="' + esc(b.from) + '" data-in="f" data-d="buy" data-f="from"><datalist id="places">' + D.places().map(n => '<option value="' + esc(n) + '">').join('') + '</datalist><div class="hint">Type a name only if you keep a due or advance with them.</div></div>' +
-      '<div class="field"><label>Paid now (₹)</label><input id="paidIn" type="number" inputmode="decimal" value="' + (b.paid === null ? c.total : esc(b.paid)) + '" data-in="f" data-d="buy" data-f="paid"></div>' +
+      '<div class="field"><label>Paid to the seller now (₹)</label><input id="paidIn" type="number" inputmode="decimal" value="' + (b.paid === null ? c.sub : esc(b.paid)) + '" data-in="f" data-d="buy" data-f="paid"></div>' +
       '<div class="btns" style="margin:-4px 0 12px"><button class="btn sm ghost" data-act="buyPaidFull">Full amount</button><button class="btn sm ghost" data-act="buyPaidNone">Nothing (pay later)</button></div>' +
       '<div class="field" style="margin-bottom:0"><label>Paid by</label>' + methodSeg('buy', b.method) + '</div></div>' +
       '<div class="tbox" id="utot">' + buyTotals(c) + '</div><div class="sticky-save"><button class="btn primary block" data-act="buySave">Save purchase</button></div></div>';
   };
 
   SCREENS.purchases = () => top('Purchase History', D.state.purchases.length + ' entries') + '<div class="page"><div class="card">' +
-    (D.state.purchases.slice().sort((a, b) => b.ts - a.ts).slice(0, 100).map(pu => '<div class="row" data-act="purOpen" data-id="' + pu.id + '"><div class="ico gold">' + ic('cart') + '</div><div class="main"><div class="t">' + esc(pu.vendorName) + '</div><div class="s">' + esc(pu.no) + ' · ' + fmtDate(pu.date) + ' · ' + pu.lines.map(l => esc(l.name)).join(', ') + '</div></div><div class="end"><b>' + money(pu.total) + '</b>' + (pu.total - pu.paid > 0.005 ? '<span class="pill warn">Unpaid ' + money(D.r2(pu.total - pu.paid)) + '</span>' : '<span class="pill">Paid</span>') + '</div></div>').join('') || empty('cart', 'No purchases yet', 'Use "Buy Stock" to add one.')) + '</div></div>';
+    (D.state.purchases.slice().sort((a, b) => b.ts - a.ts).slice(0, 100).map(pu => '<div class="row" data-act="purOpen" data-id="' + pu.id + '"><div class="ico gold">' + ic('cart') + '</div><div class="main"><div class="t">' + esc(pu.vendorName) + '</div><div class="s">' + esc(pu.no) + ' · ' + fmtDate(pu.date) + ' · ' + pu.lines.map(l => esc(l.name)).join(', ') + '</div></div><div class="end"><b>' + money(pu.total) + '</b>' + ((pu.items == null ? pu.total : pu.items) - pu.paid > 0.005 ? '<span class="pill warn">Unpaid ' + money(D.r2((pu.items == null ? pu.total : pu.items) - pu.paid)) + '</span>' : '<span class="pill">Paid</span>') + '</div></div>').join('') || empty('cart', 'No purchases yet', 'Use "Buy Stock" to add one.')) + '</div></div>';
   /* ---------- PACK PRODUCTS ---------- */
   SCREENS.pack = () => {
     const ok = D.rawsWithPacks(), no = D.rawItems().filter(r => !ok.includes(r));
@@ -696,7 +697,7 @@
       const c = calcBuy(S.buy);
       e.innerHTML = buyTotals(c);
       S.buy.lines.forEach((l, i) => { const o = $('[data-out="info-' + i + '"]'); if (o) o.innerHTML = buyInfo(l, c); });
-      const pi = $('#paidIn'); if (pi && S.buy.paid === null && document.activeElement !== pi) pi.value = c.total;
+      const pi = $('#paidIn'); if (pi && S.buy.paid === null && document.activeElement !== pi) pi.value = c.sub;
     },
     pack() {
       const e = $('#ptot'); if (!e) return;
@@ -791,7 +792,7 @@
     buyStart(el) {
       const t = el.dataset.t;
       if (t === 'pack' && !D.rawItems().length) return toast('First buy a raw material, then its packaging', 1);
-      S.buy = { lines: [newBuyLine(t)], extra: '', paid: null, from: '', method: 'Cash' };
+      S.buy = { lines: [newBuyLine(t)], extras: [{ label: '', amt: '' }], paid: null, from: '', method: 'Cash' };
       go('buy');
     },
     buyMore(el) { S.buy = null; go('buy', { pre: el.dataset.id }); },
@@ -801,6 +802,8 @@
       S.buy.lines.push(newBuyLine(t)); $('#lines').innerHTML = buyLines(); UPD.buy();
       const ls = $$('#lines .line'); if (ls.length) ls[ls.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
     },
+    exAdd() { S.buy.extras.push({ label: '', amt: '' }); $('#extras').innerHTML = extraRows(); UPD.buy(); },
+    exDel(el) { S.buy.extras.splice(+el.dataset.i, 1); $('#extras').innerHTML = extraRows(); UPD.buy(); },
     buyClear() { S.buy = null; draw(); },
     buyPaidFull() { S.buy.paid = null; draw(true); },
     buyPaidNone() { S.buy.paid = '0'; draw(true); },
@@ -808,7 +811,7 @@
       const b = S.buy, c = calcBuy(b);
       try {
         const pu = D.purchase({
-          from: b.from, extra: c.extra, paid: c.paid, method: b.method,
+          from: b.from, extra: c.extra, extras: b.extras.map(e => ({ label: e.label, amount: num(e.amt) })), paid: c.paid, method: b.method,
           lines: b.lines.map(l => l.type === 'raw' ? { type: 'raw', name: l.name, unit: l.unit, qty: num(l.qty), total: D.r2(num(l.qty) * num(l.rate)) } :
             { type: 'pack', rawName: l.rawName, size: num(l.size), sizeUnit: l.sizeUnit, pname: l.pname, qty: num(l.qty), total: num(l.total) })
         });
@@ -822,7 +825,7 @@
       const pu = D.find('purchases', el.dataset.id);
       openSheet('<h2>' + pu.no + ' · ' + esc(pu.vendorName) + '</h2><p class="mut" style="margin-bottom:8px">' + fmtDate(pu.date) + '</p><div class="card" style="padding:8px 12px">' +
         pu.lines.map(l => '<div class="kv"><span>' + esc(l.name) + ' × ' + qf(l.qty) + ' ' + l.unit + '</span><b>' + money(l.total) + '</b></div>').join('') +
-        (pu.extra ? '<div class="kv"><span>Extra cost</span><b>' + money(pu.extra) + '</b></div>' : '') + '<div class="kv"><span>Total</span><b>' + money(pu.total) + '</b></div><div class="kv"><span>Paid</span><b>' + money(pu.paid) + '</b></div></div>' +
+        (pu.extra ? '<div class="kv"><span>Extra costs (paid by you)</span><b>' + money(pu.extra) + '</b></div>' : '') + '<div class="kv"><span>Real total cost</span><b>' + money(pu.total) + '</b></div><div class="kv"><span>Paid to seller</span><b>' + money(pu.paid) + '</b></div></div>' +
         '<div class="btns"><button class="btn ghost" data-act="confNo">Close</button><button class="btn danger" data-act="purDel" data-id="' + pu.id + '">Delete</button></div>');
     },
     async purDel(el) {
@@ -972,6 +975,8 @@
     } else if (k === 'f') {
       S[t.dataset.d][t.dataset.f] = t.value;
       UPD[t.dataset.d]();
+    } else if (k === 'ex') {
+      S.buy.extras[+t.dataset.i][t.dataset.f] = t.value; UPD.buy();
     } else if (k === 'pk') {
       S.pack[t.dataset.f][t.dataset.key] = t.value;
       UPD.pack();

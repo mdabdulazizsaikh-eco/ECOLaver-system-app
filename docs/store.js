@@ -286,7 +286,7 @@
     const paid = Math.max(+d.paid || 0, 0);
     const from = clean(d.from);
     const market = !from || nk(from) === nk(MARKET) || nk(from) === 'market';
-    const due = r2(total - paid);
+    const due = r2(sub - paid); // the extra cost is paid by you directly, not to the vendor
     if (Math.abs(due) > 0.005 && market) throw new Error('Type the vendor name to keep the ' + (due > 0 ? 'unpaid amount' : 'extra money paid'));
     let vendor = null;
     if (!market) {
@@ -325,11 +325,11 @@
     });
     const pu = {
       id: uid(), no, date: d.date || today(), ts: Date.now(), vendorId: vendor ? vendor.id : '', vendorName: market ? MARKET : (vendor ? vendor.name : from),
-      lines: out, extra: r2(extra), total, paid: r2(paid), note: d.note || '', method: d.method || 'Cash'
+      lines: out, items: r2(sub), extra: r2(extra), extras: (d.extras || []).filter(e => +e.amount > 0).map(e => ({ label: clean(e.label), amount: r2(+e.amount) })), total, paid: r2(paid), note: d.note || '', method: d.method || 'Cash'
     };
     state.purchases.push(pu);
     if (vendor) {
-      ledger(vendor, 'purchase', 'Purchase ' + no, total, pu.id, '', pu.date);
+      ledger(vendor, 'purchase', 'Purchase ' + no, r2(sub), pu.id, '', pu.date);
       if (paid > 0) ledger(vendor, 'payment', 'Paid on ' + no, -paid, pu.id, pu.method, pu.date);
     }
     save();
@@ -634,6 +634,8 @@
     inv.filter(i => !i.customerId).forEach(i => { cashIn += i.paid; });
     // purchases without a vendor record are fully paid in cash
     pur.filter(p => !p.vendorId).forEach(p => { cashOut += p.paid; });
+    // extra costs (transport, food...) are always paid by you directly
+    pur.forEach(p => { cashOut += p.extra || 0; });
     return {
       bills: inv.length, sales: r2(sum(inv.map(i => i.total))), discount: r2(sum(inv.map(i => i.discount))),
       cogs: r2(sum(inv.map(i => i.cogs))), profit: r2(sum(inv.map(i => i.profit))),
