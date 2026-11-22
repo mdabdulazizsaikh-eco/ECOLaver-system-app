@@ -121,7 +121,7 @@
   function billCanvas(inv) {
     const s = D.state.settings, W = 720, P = 36, rows = inv.lines.length;
     const extra = (inv.discount ? 1 : 0) + (inv.memberDiscount && inv.discount - inv.memberDiscount > 0.005 ? 1 : 0) + (inv.advanceUsed ? 1 : 0) + (Math.abs(inv.billBalance) > 0.005 ? 1 : 0);
-    const H = 330 + rows * 56 + 170 + extra * 40 + 90;
+    const H = 330 + rows * 56 + 170 + extra * 40 + 90 + (inv.kind === 'receipt' ? 50 : 0);
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d'), F = 'system-ui, -apple-system, Roboto, Arial, sans-serif';
     const fit = (t, mw) => { t = String(t); if (x.measureText(t).width <= mw) return t; while (t.length > 1 && x.measureText(t + '…').width > mw) t = t.slice(0, -1); return t + '…'; };
@@ -138,7 +138,7 @@
       x.fillText(fit([s.phone ? 'Ph: ' + s.phone : '', s.email].filter(Boolean).join('  ·  '), W - P * 2 - 130), P + 126, 120);
       x.globalAlpha = 1;
       let y = 200;
-      x.fillStyle = '#111'; x.font = 'bold 26px ' + F; x.fillText('Bill ' + inv.no, P, y);
+      x.fillStyle = '#111'; x.font = 'bold 26px ' + F; x.fillText((inv.kind === 'receipt' ? 'Pre-order Receipt ' : 'Bill ') + inv.no, P, y);
       x.font = '22px ' + F; x.fillStyle = '#555'; x.fillText(fmtDate(inv.date) + (inv.orderNo ? '  ·  Pre-order ' + inv.orderNo : ''), P, y + 32);
       x.textAlign = 'right'; x.fillStyle = '#111'; x.font = 'bold 24px ' + F; x.fillText(fit(inv.customerName, 330), W - P, y);
       if (inv.customerPhone) { x.font = '20px ' + F; x.fillStyle = '#555'; x.fillText(inv.customerPhone, W - P, y + 30); }
@@ -162,8 +162,9 @@
       x.fillStyle = '#00552c'; x.fillRect(330, y - 26, W - P - 330, 2); y += 12;
       row('Total', money(inv.total), true);
       if (inv.advanceUsed) row('Pre-order advance', money(inv.advanceUsed));
-      row('Paid (' + inv.method + ')', money(inv.paid));
-      if (Math.abs(inv.billBalance) > 0.005) row(inv.billBalance > 0 ? 'Balance due' : 'Advance balance', money(Math.abs(inv.billBalance)));
+      row((inv.kind === 'receipt' ? 'Advance received (' : 'Paid (') + inv.method + ')', money(inv.paid));
+      if (Math.abs(inv.billBalance) > 0.005) row(inv.kind === 'receipt' ? 'Balance on delivery' : (inv.billBalance > 0 ? 'Balance due' : 'Advance balance'), money(Math.abs(inv.billBalance)));
+      if (inv.kind === 'receipt') { y += 14; x.textAlign = 'center'; x.fillStyle = '#555'; x.font = '19px ' + F; x.fillText(fit((inv.deliveryDate ? 'Delivery date: ' + fmtDate(inv.deliveryDate) + '. ' : '') + 'Advance receipt, final bill at delivery', W - P * 2), W / 2, y); y += 20; }
       y += 20;
       x.textAlign = 'center'; x.fillStyle = '#555'; x.font = '20px ' + F; x.fillRect(P, y - 26, W - P * 2, 1);
       x.fillText(fit(s.footer, W - P * 2), W / 2, y + 12);
@@ -383,25 +384,25 @@
     return '<div class="paper"><div class="ph"><div class="lg">' + logoHtml() + '</div><div><h2>' + esc(s.name) + '</h2>' +
       (s.tagline ? '<p><i>' + esc(s.tagline) + '</i></p>' : '') + (s.address ? '<p>' + esc(s.address) + '</p>' : '') +
       '<p>' + [s.phone ? 'Ph: ' + esc(s.phone) : '', s.email ? esc(s.email) : ''].filter(Boolean).join(' · ') + '</p></div></div>' +
-      '<div class="meta"><div><b>Bill ' + esc(inv.no) + '</b>' + (inv.void ? '<span class="stamp">CANCELLED</span>' : '') + '<br>' + fmtDate(inv.date) + (inv.orderNo ? '<br><i>Pre-order ' + esc(inv.orderNo) + '</i>' : '') + '</div><div style="text-align:right"><b>' + esc(inv.customerName) + '</b>' + (inv.customerPhone ? '<br>' + esc(inv.customerPhone) : '') + (inv.memberNo ? '<br><i>Family Card ' + maskNo(inv.memberNo) + '</i>' : '') + '</div></div>' +
+      '<div class="meta"><div><b>' + (inv.kind === 'receipt' ? 'Pre-order Receipt ' : 'Bill ') + esc(inv.no) + '</b>' + (inv.void ? '<span class="stamp">CANCELLED</span>' : '') + '<br>' + fmtDate(inv.date) + (inv.orderNo ? '<br><i>Pre-order ' + esc(inv.orderNo) + '</i>' : '') + '</div><div style="text-align:right"><b>' + esc(inv.customerName) + '</b>' + (inv.customerPhone ? '<br>' + esc(inv.customerPhone) : '') + (inv.memberNo ? '<br><i>Family Card ' + maskNo(inv.memberNo) + '</i>' : '') + '</div></div>' +
       '<table><tr><th>Item</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr>' +
       inv.lines.map(l => '<tr><td>' + esc(l.name) + '</td><td class="r">' + qf(l.qty) + ' ' + l.unit + '</td><td class="r">' + money(l.rate) + '</td><td class="r">' + money(l.amount) + '</td></tr>').join('') + '</table>' +
       '<div class="tot"><div><span>Subtotal</span><span>' + money(inv.subtotal) + '</span></div>' +
       (inv.memberDiscount ? '<div><span>Family member discount</span><span>-' + money(inv.memberDiscount) + '</span></div>' : '') + (inv.discount - (inv.memberDiscount || 0) > 0.005 ? '<div><span>Discount</span><span>-' + money(D.r2(inv.discount - (inv.memberDiscount || 0))) + '</span></div>' : '') +
       '<div class="g"><span>Total</span><span>' + money(inv.total) + '</span></div>' +
       (inv.advanceUsed ? '<div><span>Pre-order advance adjusted</span><span>' + money(inv.advanceUsed) + '</span></div>' : '') +
-      '<div><span>Paid (' + esc(inv.method) + ')</span><span>' + money(inv.paid) + '</span></div>' +
-      (Math.abs(inv.billBalance) > 0.005 ? '<div><b>' + (inv.billBalance > 0 ? 'Balance due' : 'Advance balance') + '</b><b>' + money(Math.abs(inv.billBalance)) + '</b></div>' : '') + '</div>' +
+      '<div><span>' + (inv.kind === 'receipt' ? 'Advance received (' : 'Paid (') + esc(inv.method) + ')</span><span>' + money(inv.paid) + '</span></div>' +
+      (Math.abs(inv.billBalance) > 0.005 ? '<div><b>' + (inv.kind === 'receipt' ? 'Balance on delivery' : (inv.billBalance > 0 ? 'Balance due' : 'Advance balance')) + '</b><b>' + money(Math.abs(inv.billBalance)) + '</b></div>' : '') + '</div>' +
       (s.upi && inv.billBalance > 0.005 ? '<p style="margin-top:10px">Pay by UPI: <b>' + esc(s.upi) + '</b></p>' : '') +
-      (cust && Math.abs(cust.balance) > 0.005 && !inv.void ? '<p style="margin-top:8px;font-size:12px;color:#555">Your account balance: ' + balLabel('customers', cust.balance).t + '</p>' : '') +
+      (inv.kind === 'receipt' ? '<p style="margin-top:10px;font-size:12px;color:#555">' + (inv.deliveryDate ? 'Delivery date: <b>' + fmtDate(inv.deliveryDate) + '</b>. ' : '') + 'This is an advance receipt, not the final bill. The final bill is given at delivery.</p>' : '') + (cust && Math.abs(cust.balance) > 0.005 && !inv.void && inv.kind !== 'receipt' ? '<p style="margin-top:8px;font-size:12px;color:#555">Your account balance: ' + balLabel('customers', cust.balance).t + '</p>' : '') +
       '<div class="ft">' + esc(s.footer) + '</div></div>';
   }
   function invText(inv) {
     const s = D.state.settings;
-    return '*' + s.name + '*\nBill ' + inv.no + ' · ' + fmtDate(inv.date) + (inv.orderNo ? '\nPre-order: ' + inv.orderNo : '') + '\nCustomer: ' + inv.customerName + '\n\n' +
+    return '*' + s.name + '*\n' + (inv.kind === 'receipt' ? 'Pre-order Receipt ' : 'Bill ') + inv.no + ' · ' + fmtDate(inv.date) + (inv.orderNo ? '\nPre-order: ' + inv.orderNo : '') + '\nCustomer: ' + inv.customerName + '\n\n' +
       inv.lines.map((l, i) => (i + 1) + '. ' + l.name + ' × ' + qf(l.qty) + ' ' + l.unit + ' = ' + money(l.amount)).join('\n') +
-      '\n\n' + (inv.memberDiscount ? 'Family member discount: -' + money(inv.memberDiscount) + '\n' : '') + (inv.discount - (inv.memberDiscount || 0) > 0.005 ? 'Discount: -' + money(D.r2(inv.discount - (inv.memberDiscount || 0))) + '\n' : '') + 'Total: ' + money(inv.total) + '\nPaid: ' + money(inv.paid) +
-      (inv.billBalance > 0.005 ? '\nBalance due: ' + money(inv.billBalance) : '') + '\n\n' + s.footer;
+      '\n\n' + (inv.memberDiscount ? 'Family member discount: -' + money(inv.memberDiscount) + '\n' : '') + (inv.discount - (inv.memberDiscount || 0) > 0.005 ? 'Discount: -' + money(D.r2(inv.discount - (inv.memberDiscount || 0))) + '\n' : '') + 'Total: ' + money(inv.total) + (inv.kind === 'receipt' ? '\nAdvance received: ' : '\nPaid: ') + money(inv.paid) +
+      (inv.billBalance > 0.005 ? (inv.kind === 'receipt' ? '\nBalance on delivery: ' : '\nBalance due: ') + money(inv.billBalance) : '') + (inv.kind === 'receipt' && inv.deliveryDate ? '\nDelivery date: ' + fmtDate(inv.deliveryDate) : '') + '\n\n' + s.footer;
   }
 
   /* ---------- SCREENS ---------- */
@@ -436,6 +437,7 @@
       const o = D.find('orders', p.orderId);
       S.bill = newBill({ customerId: o.customerId });
       S.bill.orderId = o.id;
+      if (o.discount - (o.memberDiscount || 0) > 0.005) S.bill.discount = String(D.r2(o.discount - (o.memberDiscount || 0)));
       S.bill.unmatched = [];
       o.lines.forEach(l => {
         let it = l.itemId ? D.item(l.itemId) : null;
@@ -645,10 +647,13 @@
 
   /* ---------- ORDERS ---------- */
   function calcOrder(o) {
-    const total = D.r2(D.sum(o.lines.map(l => num(l.qty) * num(l.rate))));
-    return { total, adv: num(o.advance), bal: D.r2(total - num(o.advance)) };
+    const sub = D.r2(D.sum(o.lines.map(l => num(l.qty) * num(l.rate))));
+    const cust = o.customerId ? D.find('customers', o.customerId) : null, mem = cust && cust.member ? cust.member : null;
+    const memberDisc = mem ? D.r2(D.sum(o.lines.map(l => num(l.qty) * num(l.rate) * (l.itemId ? D.memberPct(l.itemId) : D.state.settings.memberPct) / 100))) : 0;
+    const disc = Math.min(D.r2(memberDisc + num(o.discount)), sub), total = D.r2(sub - disc);
+    return { sub, disc, memberDisc, mem, total, adv: num(o.advance), bal: D.r2(total - num(o.advance)) };
   }
-  const orderTotals = () => { const c = calcOrder(S.order); return '<div class="r big" style="border:0;margin:0;padding-top:0"><span>Order total</span><b>' + money(c.total) + '</b></div><div class="r"><span>Advance received</span><b>' + money(c.adv) + '</b></div><div class="r"><span>Balance on delivery</span><b>' + money(c.bal) + '</b></div>'; };
+  const orderTotals = () => { const c = calcOrder(S.order); return (c.disc ? '<div class="r"><span>Subtotal</span><b>' + money(c.sub) + '</b></div>' : '') + (c.memberDisc ? '<div class="r"><span>Family member discount</span><b>-' + money(c.memberDisc) + '</b></div>' : '') + (c.disc - c.memberDisc > 0.005 ? '<div class="r"><span>Extra discount</span><b>-' + money(D.r2(c.disc - c.memberDisc)) + '</b></div>' : '') + '<div class="r big" style="border:0;margin:0;padding-top:0"><span>Order total</span><b>' + money(c.total) + '</b></div><div class="r"><span>Advance received</span><b>' + money(c.adv) + '</b></div><div class="r"><span>Balance on delivery</span><b>' + money(c.bal) + '</b></div>'; };
   const waiting = o => o.lines.some(l => { const it = l.itemId ? D.item(l.itemId) : null; return !it || it.stock + 1e-9 < D.conv(l.qty, l.unit, it.unit); });
   SCREENS.orders = () => {
     const f = S.flt.orders, k = S.flt.ordk, cu = k === 'customers';
@@ -664,14 +669,31 @@
         empty('clip', 'Nothing here', 'Tap "+ New" to add a pre-order.')) + '</div></div>';
   };
   SCREENS.orderNew = () => {
-    if (!S.order) S.order = { customerId: '', lines: [], deliveryDate: '', advance: '', method: 'Cash', note: '' };
+    if (!S.order) S.order = { customerId: '', lines: [], deliveryDate: '', advance: '', discount: '', method: 'Cash', note: '' };
     const o = S.order, cust = o.customerId ? D.find('customers', o.customerId) : null;
     return top('New Order', 'Customer pays advance, you deliver later') + '<div class="page">' +
       '<div class="card"><h3>Customer</h3><div class="row" data-act="orderCust"><div class="ico">' + (cust ? esc(cust.name.slice(0, 1).toUpperCase()) : ic('user')) + '</div><div class="main"><div class="t">' + (cust ? esc(cust.name) : 'Choose customer') + '</div><div class="s">' + (cust ? esc(cust.phone) : 'Required') + '</div></div><span class="lnk">' + (cust ? 'Change' : 'Choose') + '</span></div></div>' +
       '<div class="card"><h3>Items ordered</h3><div id="lines">' + sellLines('order') + '</div><div class="btns"><button class="btn" data-act="addLine" data-d="order">' + ic('plus') + 'From stock</button><button class="btn gold" data-act="ordFree">' + ic('plus') + 'Not in stock yet</button></div></div>' +
-      '<div class="card"><div class="two"><div class="field"><label>Advance received (₹)</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(o.advance) + '" data-in="f" data-d="order" data-f="advance"></div><div class="field"><label>Delivery date</label><input type="date" value="' + esc(o.deliveryDate) + '" data-in="f" data-d="order" data-f="deliveryDate"></div></div>' +
+      '<div class="card"><div class="field"><label>' + (calcOrder(o).mem ? 'Extra discount on top of member discount (₹)' : 'Discount (₹)') + '</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(o.discount) + '" data-in="f" data-d="order" data-f="discount"></div><div class="two"><div class="field"><label>Advance received (₹)</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(o.advance) + '" data-in="f" data-d="order" data-f="advance"></div><div class="field"><label>Delivery date</label><input type="date" value="' + esc(o.deliveryDate) + '" data-in="f" data-d="order" data-f="deliveryDate"></div></div>' +
       '<div class="field" style="margin-bottom:0"><label>Advance paid by</label>' + methodSeg('order', o.method) + '</div></div>' +
       '<div class="tbox" id="otot">' + orderTotals() + '</div><div class="sticky-save"><button class="btn primary block" data-act="orderSave">Save order</button></div></div>';
+  };
+
+  /* pre-order advance receipt: looks like a bill, can be shared or downloaded */
+  function receiptDoc(o) {
+    const cust = D.find('customers', o.customerId);
+    return { kind: 'receipt', id: o.id, no: o.no, date: o.date, customerId: o.customerId, customerName: o.customerName, customerPhone: (cust && cust.phone) || o.customerPhone || '', memberNo: o.memberNo || '',
+      lines: o.lines, subtotal: o.subtotal == null ? o.total : o.subtotal, discount: o.discount || 0, memberDiscount: o.memberDiscount || 0, total: o.total, advanceUsed: 0, paid: o.advance, method: o.method,
+      billBalance: D.r2(o.total - o.advance), deliveryDate: o.deliveryDate, void: o.status === 'cancelled' };
+  }
+  SCREENS.orderReceipt = p => {
+    const o = D.find('orders', p.id);
+    if (!o) return top('Receipt', '') + '<div class="page">' + empty('receipt', 'Order not found') + '</div>';
+    return top('Advance Receipt', o.no) + '<div class="page">' +
+      (p.fresh ? '<div class="success"><div class="tick">' + ic('check') + '</div><b style="font-size:18px">Order saved</b><p class="mut">Send the receipt to the customer</p></div>' : '') +
+      paper(receiptDoc(o)) +
+      '<div class="btns" style="margin-top:14px"><button class="btn gold" data-act="rcShare" data-id="' + o.id + '">' + ic('share') + 'WhatsApp</button><button class="btn" data-act="rcImage" data-id="' + o.id + '">' + ic('print') + 'Download / Share image</button></div>' +
+      '<button class="btn ghost block" style="margin-top:10px" data-act="goto" data-n="orders">All pre-orders</button></div>';
   };
 
   /* ---------- PEOPLE ---------- */
@@ -960,6 +982,22 @@
         else { const a = document.createElement('a'); a.href = cv.toDataURL('image/png'); a.download = 'family-card.png'; document.body.appendChild(a); a.click(); a.remove(); }
       } catch (e) { toast(e.message, 1); }
     },
+    orderReceipt(el) { closeSheet(); go('orderReceipt', { id: el.dataset.id }); },
+    async rcShare(el) {
+      const rc = receiptDoc(D.find('orders', el.dataset.id)), txt = invText(rc);
+      if (rc.customerPhone) return openLink(waLink(rc.customerPhone, txt));
+      if (await shareNative({ title: 'Receipt ' + rc.no, text: txt, dialogTitle: 'Send receipt' })) return;
+      if (navigator.share) navigator.share({ title: 'Receipt ' + rc.no, text: txt }).catch(() => { }); else openLink(waLink('', txt));
+    },
+    async rcImage(el) {
+      try {
+        const rc = receiptDoc(D.find('orders', el.dataset.id));
+        toast('Making receipt image...');
+        const cv = await billCanvas(rc);
+        if (NATIVE) await shareFile('receipt-' + rc.no + '.png', cv.toDataURL('image/png').split(',')[1], false, 'Receipt ' + rc.no);
+        else { const a = document.createElement('a'); a.href = cv.toDataURL('image/png'); a.download = 'receipt-' + rc.no + '.png'; document.body.appendChild(a); a.click(); a.remove(); }
+      } catch (e) { toast(e.message, 1); }
+    },
     fltOrdK(el) { S.flt.ordk = el.dataset.v; S.flt.orders = 'pending'; draw(true); },
     orderNew() { if (S.flt.ordk === 'vendors') { S.buy = newBuy('raw', 'order'); go('buy'); } else { S.order = null; go('orderNew'); } },
     vorderOpen(el) {
@@ -999,8 +1037,9 @@
     orderSave() {
       const o = S.order;
       try {
-        D.order({ customerId: o.customerId, lines: o.lines.map(l => Object.assign({}, l)), advance: num(o.advance), method: o.method, deliveryDate: o.deliveryDate });
-        S.order = null; toast('Order saved'); S.flt.orders = 'pending'; goBack();
+        const c = calcOrder(o);
+        const sv = D.order({ customerId: o.customerId, lines: o.lines.map(l => Object.assign({}, l)), discount: c.disc, memberDiscount: c.memberDisc, memberNo: c.mem ? c.mem.no : '', advance: num(o.advance), method: o.method, deliveryDate: o.deliveryDate });
+        S.order = null; S.flt.orders = 'pending'; go('orderReceipt', { id: sv.id, fresh: 1 }, true);
       } catch (e) { toast(e.message, 1); }
     },
     fltOrders(el) { S.flt.orders = el.dataset.v; draw(true); },
@@ -1008,7 +1047,8 @@
       const o = D.find('orders', el.dataset.id);
       openSheet('<h2>' + o.no + ' · ' + esc(o.customerName) + '</h2>' + (o.deliveryDate ? '<p class="mut" style="margin-bottom:8px">Deliver on ' + fmtDate(o.deliveryDate) + '</p>' : '') +
         '<div class="card" style="padding:8px 12px">' + o.lines.map(l => '<div class="kv"><span>' + esc(l.name) + ' × ' + qf(l.qty) + ' ' + l.unit + '</span><b>' + money(l.amount) + '</b></div>').join('') +
-        '<div class="kv"><span>Total</span><b>' + money(o.total) + '</b></div><div class="kv"><span>Advance received</span><b>' + money(o.advance) + '</b></div><div class="kv"><span>Balance on delivery</span><b>' + money(D.r2(o.total - o.advance)) + '</b></div></div>' +
+        (o.discount ? '<div class="kv"><span>Discount</span><b>-' + money(o.discount) + '</b></div>' : '') + '<div class="kv"><span>Total</span><b>' + money(o.total) + '</b></div><div class="kv"><span>Advance received</span><b>' + money(o.advance) + '</b></div><div class="kv"><span>Balance on delivery</span><b>' + money(D.r2(o.total - o.advance)) + '</b></div></div>' +
+        '<button class="btn gold block" style="margin-bottom:10px" data-act="orderReceipt" data-id="' + o.id + '">' + ic('receipt') + 'Advance receipt (share / download)</button>' +
         (o.status === 'pending' ? '<div class="btns"><button class="btn danger" data-act="orderCancel" data-id="' + o.id + '">Cancel</button><button class="btn primary" data-act="orderDeliver" data-id="' + o.id + '">Deliver & bill</button></div>' : '') +
         (o.status !== 'delivered' ? '<button class="btn ghost block" style="margin-top:10px" data-act="orderDel" data-id="' + o.id + '">Delete this order</button>' : '<p class="mut" style="font-size:13px">Delivered. To remove it, delete its bill first.</p>'));
     },
@@ -1051,7 +1091,7 @@
       try { D.payment(el.dataset.kind, el.dataset.id, $('#pay-amt').value, $('#pay-m').value, $('#pay-n').value, !!el.dataset.adv); closeSheet(); toast('Saved'); draw(true); } catch (e) { toast(e.message, 1); }
     },
     custBill(el) { S.bill = null; go('bill', { customerId: el.dataset.id }); },
-    custOrder(el) { S.order = { customerId: el.dataset.id, lines: [], deliveryDate: '', advance: '', method: 'Cash', note: '' }; go('orderNew'); },
+    custOrder(el) { S.order = { customerId: el.dataset.id, lines: [], deliveryDate: '', advance: '', discount: '', method: 'Cash', note: '' }; go('orderNew'); },
     vendBuy() { go('buyMenu'); },
     remind(el) {
       const p = D.find('customers', el.dataset.id), s = D.state.settings;

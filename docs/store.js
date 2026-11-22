@@ -574,10 +574,12 @@
     });
     if (!lines.length) throw new Error('Add at least one item');
     const advance = Math.max(+d.advance || 0, 0);
-    const total = r2(sum(lines.map(l => l.amount)));
+    const subtotal = r2(sum(lines.map(l => l.amount)));
+    const discount = Math.min(Math.max(+d.discount || 0, 0), subtotal);
+    const total = r2(subtotal - discount);
     const no = 'ORD-' + pad(state.counters.order++, 4);
     const o = {
-      id: uid(), no, date: today(), ts: Date.now(), customerId: cust.id, customerName: cust.name, lines, total,
+      id: uid(), no, date: today(), ts: Date.now(), customerId: cust.id, customerName: cust.name, customerPhone: cust.phone || '', lines, subtotal, discount: r2(discount), memberDiscount: r2(Math.min(Math.max(+d.memberDiscount || 0, 0), discount)), memberNo: d.memberNo || '', total,
       advance: r2(advance), method: d.method || 'Cash', deliveryDate: d.deliveryDate || '', note: d.note || '',
       status: 'pending', invoiceId: ''
     };
