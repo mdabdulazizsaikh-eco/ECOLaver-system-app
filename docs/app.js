@@ -1399,6 +1399,34 @@
   if (D.lastError) toast(D.lastError, 1); else if (D.notice) toast(D.notice);
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
   if (!NATIVE && 'serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { }));
+  /* ---------- pull down to refresh (like Chrome) ---------- */
+  (function () {
+    let y0 = null, pull = 0, busy = false;
+    const bar = document.createElement('div');
+    bar.id = 'ptr'; bar.innerHTML = '<span>Pull down to refresh</span>';
+    document.body.appendChild(bar);
+    const reset = () => { bar.style.transform = 'translateY(-100%)'; bar.classList.remove('go'); };
+    document.addEventListener('touchstart', e => {
+      y0 = (window.scrollY <= 0 && !busy && !$('.sheet-wrap') && e.touches.length === 1) ? e.touches[0].clientY : null; pull = 0;
+    }, { passive: true });
+    document.addEventListener('touchmove', e => {
+      if (y0 === null) return;
+      const dy = e.touches[0].clientY - y0;
+      if (dy <= 0) { pull = 0; reset(); return; }
+      pull = Math.min(dy, 140);
+      bar.style.transform = 'translateY(' + (pull * 0.6 - 100) + '%)';
+      bar.firstChild.textContent = pull > 90 ? 'Release to refresh' : 'Pull down to refresh';
+    }, { passive: true });
+    document.addEventListener('touchend', async () => {
+      if (y0 === null) return;
+      const go2 = pull > 90; y0 = null; pull = 0;
+      if (!go2) { reset(); return; }
+      busy = true; bar.classList.add('go'); bar.style.transform = 'translateY(0)'; bar.firstChild.textContent = 'Refreshing...';
+      try { draw(true); if (NATIVE) await checkUpdate(false); } catch (e) { }
+      setTimeout(() => { busy = false; reset(); toast('Refreshed'); }, 600);
+    }, { passive: true });
+  })();
+
   draw();
   if (NATIVE) setTimeout(() => checkUpdate(false), 1500);
 })();
