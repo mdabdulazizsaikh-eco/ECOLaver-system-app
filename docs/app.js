@@ -1225,10 +1225,19 @@
       const name = 'ECOLaver-backup-' + D.today() + '.json', json = D.exportJSON();
       try {
         if (NATIVE) {
+          const sa = plug('StorageAccess');
+          if (sa) {
+            let g = true; try { g = (await sa.check()).granted; } catch (e) { }
+            if (!g) {
+              const ok = await confirmSheet({ title: 'Allow folder access', text: 'To save backups in your "ECOLaver Business Management System" folder, Android needs your permission.\n\nTap Allow, then switch ON "Allow access to manage all files" for ECOLaver. Then come back here and tap Download backup again.', ok: 'Allow' });
+              if (ok) { try { await sa.open(); } catch (e) { toast('Open phone Settings > Apps > ECOLaver > Permissions and allow all files access', 1); } }
+              return;
+            }
+          }
           const fs = plug('Filesystem'), path = BK_DIR + '/' + name;
           const put = dir => fs.writeFile({ path, data: json, directory: dir, encoding: 'utf8', recursive: true });
           let where = '';
-          try { await put('EXTERNAL_STORAGE'); where = path; }
+          try { const w = await put('EXTERNAL_STORAGE'); where = (w && w.uri ? decodeURIComponent(w.uri).replace(/^file:\/\/(\/storage\/emulated\/0)?\/?/, '') : path); }
           catch (e1) {
             try { await put('DOCUMENTS'); where = 'Documents/' + path; }
             catch (e2) { await shareFile(name, json, true, 'ECOLaver backup'); D.saveSettings({ lastBackup: new Date().toISOString() }); toast('Could not use the folder, choose where to save'); setTimeout(() => draw(true), 400); return; }
@@ -1251,7 +1260,34 @@
     async backupShare() {
       try { await shareFile('ECOLaver-backup-' + D.today() + '.json', D.exportJSON(), true, 'ECOLaver backup'); } catch (e) { toast(e.message, 1); }
     },
-    restorePick() { $('#restoreFile').click(); },
+    async restorePick() {
+      if (!NATIVE) { $('#restoreFile').click(); return; }
+      const fs = plug('Filesystem'); let files = [], where = '';
+      for (const dir of ['EXTERNAL_STORAGE', 'DOCUMENTS']) {
+        try {
+          const r = await fs.readdir({ path: BK_DIR, directory: dir });
+          const l = (r.files || []).map(f => typeof f === 'string' ? { name: f } : f).filter(f => /\.json$/i.test(f.name));
+          if (l.length) { files = l; where = dir; break; }
+        } catch (e) { }
+      }
+      if (!files.length) { $('#restoreFile').click(); return; }
+      files.sort((x, y) => y.name.localeCompare(x.name));
+      S.bkList = { dir: where, files: files.slice(0, 15) };
+      openSheet('<h2>Restore from backup</h2><p class="mut" style="margin-bottom:12px;font-size:14px">Folder: ' + esc(BK_DIR) + '. Newest first. Tap the one you want.</p><div class="pick">' +
+        S.bkList.files.map((f, i) => '<div class="row" data-act="restoreFrom" data-i="' + i + '"><div class="ico gold">' + ic('clip') + '</div><div class="main"><div class="t">' + esc(f.name.replace(/\.json$/i, '')) + '</div></div></div>').join('') +
+        '</div><button class="btn ghost block" style="margin-top:12px" data-act="restoreOther">Choose another file</button>');
+    },
+    restoreOther() { closeSheet(); $('#restoreFile').click(); },
+    async restoreFrom(el) {
+      const f = S.bkList.files[+el.dataset.i], dir = S.bkList.dir;
+      closeSheet();
+      const ok = await confirmSheet({ title: 'Restore this backup?', text: f.name + '\nAll data on this phone will be replaced by this backup.', ok: 'Restore', danger: true });
+      if (!ok) return;
+      try {
+        const r = await plug('Filesystem').readFile({ path: BK_DIR + '/' + f.name, directory: dir, encoding: 'utf8' });
+        D.importJSON(r.data); S.bill = S.buy = S.order = S.pack = null; toast('Backup restored'); tab('home');
+      } catch (e) { toast(e.message, 1); }
+    },
     async resetAll(el) {
       const full = !!el.dataset.full;
       const ok = await confirmSheet({ title: full ? 'Delete EVERYTHING?' : 'Delete all business data?', text: (full ? 'Everything, including your company name, address and logo, ' : 'Items, purchases, bills, customers and vendors ') + 'will be erased from this phone. ' + (full ? '' : 'Your company details are kept. ') + 'Download a backup first if you may need it!', ok: 'Delete', danger: true });
