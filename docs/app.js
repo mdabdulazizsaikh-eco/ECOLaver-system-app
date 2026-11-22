@@ -88,6 +88,7 @@
     if (sh) { try { await sh.share(o); return true; } catch (e) { return false; } }
     return false;
   }
+  const BK_DIR = 'ECOLaver Business Management System/Backup';
   async function shareFile(name, data, isText, title) {
     const fs = plug('Filesystem');
     if (!fs) throw new Error('File sharing is not available');
@@ -777,7 +778,7 @@
       '<button class="btn primary block" data-act="setSave">Save</button></div>' +
       (NATIVE ? '<div class="card"><h3>App update <small>build ' + BUILD + '</small></h3>' + (S.upd ? '<div class="note green">A new version is available (build ' + S.upd.build + ').</div><button class="btn primary block" data-act="updNow">Update now</button>' : '<p class="mut" style="margin-bottom:12px;font-size:14px">Your app is up to date.</p><button class="btn block" data-act="updCheck">Check for update</button>') + '</div>' : '') +
       '<div class="card"><h3>Backup</h3><p class="mut" style="margin-bottom:12px;font-size:14px">All data is stored on this phone only. Download a backup often and keep it safe, for example in Google Drive.' + (s.lastBackup ? ' Last backup: ' + fmtDate(s.lastBackup.slice(0, 10)) + '.' : ' You have not made a backup yet.') + '</p>' +
-      '<div class="btns"><button class="btn gold" data-act="backup">Download backup</button><button class="btn" data-act="restorePick">Restore</button></div><input type="file" id="restoreFile" accept=".json,application/json" class="hidden"></div>' +
+      '<div class="btns"><button class="btn gold" data-act="backup">Download backup</button><button class="btn" data-act="restorePick">Restore</button></div>' + (NATIVE ? '<div class="btns" style="margin-top:8px"><button class="btn" data-act="backupShare">Share backup (WhatsApp / Drive)</button></div><p class="mut" style="font-size:13px;margin-top:8px">Backups are saved in your phone storage: ECOLaver Business Management System / Backup</p>' : '') + '<input type="file" id="restoreFile" accept=".json,application/json" class="hidden"></div>' +
       '<div class="card"><h3>Danger zone</h3><p class="mut" style="margin-bottom:12px;font-size:14px">Testing is over? Clear everything and start fresh.</p><button class="btn danger block" data-act="resetAll">Delete all business data</button><button class="btn ghost block" style="margin-top:8px" data-act="resetAll" data-full="1">Delete everything (including company details)</button></div></div>';
   };
 
@@ -1111,16 +1112,32 @@
     async backup() {
       const name = 'ECOLaver-backup-' + D.today() + '.json', json = D.exportJSON();
       try {
-        if (NATIVE) await shareFile(name, json, true, 'ECOLaver backup');
-        else {
-          const blob = new Blob([json], { type: 'application/json' });
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob); a.download = name;
-          document.body.appendChild(a); a.click(); a.remove();
+        if (NATIVE) {
+          const fs = plug('Filesystem'), path = BK_DIR + '/' + name;
+          const put = dir => fs.writeFile({ path, data: json, directory: dir, encoding: 'utf8', recursive: true });
+          let where = '';
+          try { await put('EXTERNAL_STORAGE'); where = path; }
+          catch (e1) {
+            try { await put('DOCUMENTS'); where = 'Documents/' + path; }
+            catch (e2) { await shareFile(name, json, true, 'ECOLaver backup'); D.saveSettings({ lastBackup: new Date().toISOString() }); toast('Could not use the folder, choose where to save'); setTimeout(() => draw(true), 400); return; }
+            D.saveSettings({ lastBackup: new Date().toISOString() });
+            toast('Saved in ' + where + '. To use your own folder, allow "All files access" for ECOLaver in phone Settings.', 1); setTimeout(() => draw(true), 400);
+            return;
+          }
+          D.saveSettings({ lastBackup: new Date().toISOString() });
+          toast('Saved in ' + where, 0); setTimeout(() => draw(true), 400);
+          return;
         }
+        const blob = new Blob([json], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = name;
+        document.body.appendChild(a); a.click(); a.remove();
         D.saveSettings({ lastBackup: new Date().toISOString() });
-        toast(NATIVE ? 'Choose where to save the backup' : 'Backup downloaded'); setTimeout(() => draw(true), 400);
+        toast('Backup downloaded'); setTimeout(() => draw(true), 400);
       } catch (e) { toast(e.message, 1); }
+    },
+    async backupShare() {
+      try { await shareFile('ECOLaver-backup-' + D.today() + '.json', D.exportJSON(), true, 'ECOLaver backup'); } catch (e) { toast(e.message, 1); }
     },
     restorePick() { $('#restoreFile').click(); },
     async resetAll(el) {
