@@ -88,8 +88,21 @@
   }
 
   function save() {
-    try { root.localStorage.setItem(KEY, JSON.stringify(state)); return true; }
+    try {
+      const txt = JSON.stringify(state);
+      root.localStorage.setItem(KEY, txt);
+      if (DB.onSave) { try { DB.onSave(txt); } catch (e) { } }
+      return true;
+    }
     catch (e) { lastError = 'Could not save: ' + e.message; return false; }
+  }
+  // true when the phone's browser storage already holds our data
+  function hasSaved() { try { return !!root.localStorage.getItem(KEY); } catch (e) { return false; } }
+  // put back data from the automatic file copy (only used when browser storage is empty)
+  function restoreText(txt) {
+    const d = JSON.parse(txt);
+    if (!d || d.v !== 2) throw new Error('Saved copy is not valid');
+    adopt(d); save();
   }
 
   const find = (list, id) => state[list].find(x => x.id === id);
@@ -743,7 +756,7 @@
     item, find, rawItems, findRaw, places, addPerson, updatePerson, removePerson, payment, deleteLedgerEntry,
     updateItem, removeItem, stockAdjust, purchase, deletePurchase, packGroups, rawsWithPacks, packetCost, packPlan, pack, undoBatch, suggest,
     stockIssues, vendorOrder, cancelVendorOrder, deleteVendorOrder, invoice, voidInvoice, deleteInvoice, order, cancelOrder, deleteOrder, movements, totals, lastDays, report,
-    exportJSON, importJSON, resetAll, saveSettings
+    exportJSON, importJSON, resetAll, saveSettings, hasSaved, restoreText
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = DB;

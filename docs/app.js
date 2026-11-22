@@ -1209,6 +1209,27 @@
     }
   });
 
+  /* ---------- automatic safety copy (kept inside the app's private storage) ----------
+     Every save is also written to a file. If the phone ever clears the browser storage
+     (but the app is still installed), the data is put back from this file on start. */
+  const AUTO_FILE = 'ecolaver-auto-data.json';
+  let autoT = null, autoTxt = '';
+  async function autoWrite() {
+    const fs = plug('Filesystem'); if (!fs || !autoTxt) return;
+    try { await fs.writeFile({ path: AUTO_FILE, data: autoTxt, directory: 'DATA', encoding: 'utf8' }); } catch (e) { }
+  }
+  if (NATIVE && plug('Filesystem')) {
+    D.onSave = txt => { autoTxt = txt; clearTimeout(autoT); autoT = setTimeout(autoWrite, 600); };
+    document.addEventListener('visibilitychange', () => { if (document.hidden && autoTxt) { clearTimeout(autoT); autoWrite(); } });
+    (async () => {
+      try {
+        if (D.hasSaved()) { autoTxt = JSON.stringify(D.state); autoWrite(); return; }
+        const r = await plug('Filesystem').readFile({ path: AUTO_FILE, directory: 'DATA', encoding: 'utf8' });
+        if (r && r.data) { D.restoreText(r.data); toast('Your saved data was restored'); tab('home'); }
+      } catch (e) { /* no copy yet: first start */ }
+    })();
+  }
+
   /* ---------- start ---------- */
   if (D.lastError) toast(D.lastError, 1); else if (D.notice) toast(D.notice);
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
