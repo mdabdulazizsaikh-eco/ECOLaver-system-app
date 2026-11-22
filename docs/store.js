@@ -233,9 +233,29 @@
         i.name = i.kind === 'pack' ? packName(it, i.label, i.pname) : productName(it, i.label);
       });
     }
+    if (it.manual) {
+      const name = clean(d.name);
+      if (!name) throw new Error('Please enter a name');
+      if (state.items.some(i => i.id !== id && !i.archived && i.kind !== 'pack' && nk(i.name) === nk(name))) throw new Error('This name already exists');
+      it.name = name;
+      if ('cost' in d) it.cost = Math.max(+d.cost || 0, 0);
+    }
     it.price = +d.price || 0;
     it.low = +d.low || 0;
     if ('memberPct' in d) it.memberPct = (d.memberPct === '' || d.memberPct == null) ? null : Math.min(Math.max(+d.memberPct || 0, 0), 100);
+    save();
+    return it;
+  }
+
+  /* a plain catalogue item (not made by packing): you sell it as it is */
+  function addItem(d) {
+    const name = clean(d.name);
+    if (!name) throw new Error('Please enter the item name');
+    if (state.items.some(i => !i.archived && i.kind !== 'pack' && nk(i.name) === nk(name))) throw new Error('This item already exists');
+    const it = { id: uid(), kind: 'product', manual: true, name, rawId: null, size: 0, sizeUnit: '', sizeKey: 0, label: '', unit: UNITS.includes(d.unit) ? d.unit : 'pcs', stock: 0, cost: Math.max(+d.cost || 0, 0), price: Math.max(+d.price || 0, 0), low: 0, archived: false };
+    state.items.push(it);
+    const q = r3(+d.stock || 0);
+    if (q > 0) { state.adjustments.push({ id: uid(), date: today(), ts: Date.now(), itemId: it.id, delta: q, reason: 'Opening stock' }); it.stock = q; }
     save();
     return it;
   }
@@ -699,6 +719,32 @@
     return out;
   }
 
+  /* every rupee that came in or went out in the period, newest first */
+  function cashFlow(from, to) {
+    const ins = [], outs = [];
+    const inR = (d, ts, who, what, amt, method, ref) => ins.push({ date: d, ts: ts || 0, who, what, amt: r2(amt), method: method || '', ref: ref || '' });
+    const outR = (d, ts, who, what, amt, method, ref) => outs.push({ date: d, ts: ts || 0, who, what, amt: r2(amt), method: method || '', ref: ref || '' });
+    state.customers.forEach(c => c.ledger.forEach(e => {
+      if (e.date < from || e.date > to) return;
+      if (e.type === 'payment' || e.type === 'advance') inR(e.date, e.ts, c.name, e.desc, -e.amt, e.method, e.ref);
+      if (e.type === 'refund') inR(e.date, e.ts, c.name, e.desc, -e.amt, e.method, e.ref);
+    }));
+    state.vendors.forEach(v => v.ledger.forEach(e => {
+      if (e.date < from || e.date > to) return;
+      if (e.type === 'payment' || e.type === 'advance') outR(e.date, e.ts, v.name, e.desc, -e.amt, e.method, e.ref);
+      if (e.type === 'refund') outR(e.date, e.ts, v.name, e.desc, -e.amt, e.method, e.ref);
+    }));
+    state.invoices.filter(i => !i.void && !i.customerId && i.date >= from && i.date <= to && i.paid > 0)
+      .forEach(i => inR(i.date, i.ts, 'Walk-in customer', 'Paid on bill ' + i.no, i.paid, i.method, i.id));
+    state.purchases.filter(p => p.date >= from && p.date <= to).forEach(p => {
+      if (!p.vendorId && p.paid > 0) outR(p.date, p.ts, p.vendorName || 'Market', 'Paid on ' + p.no, p.paid, p.method, p.id);
+      if (p.extra > 0) outR(p.date, p.ts, 'Extra cost', (p.extras && p.extras.length ? p.extras.filter(x => x.amount > 0).map(x => (x.label || 'Extra') + ' ₹' + x.amount).join(', ') : 'Extra cost') + ' · ' + p.no, p.extra, 'Cash', p.id);
+    });
+    const byNew = (a, b) => (b.date + String(b.ts).padStart(15, '0')).localeCompare(a.date + String(a.ts).padStart(15, '0'));
+    ins.sort(byNew); outs.sort(byNew);
+    return { ins, outs, totalIn: r2(sum(ins.map(x => x.amt))), totalOut: r2(sum(outs.map(x => x.amt))) };
+  }
+
   function report(from, to) {
     const inv = state.invoices.filter(i => !i.void && i.date >= from && i.date <= to);
     const pur = state.purchases.filter(p => p.date >= from && p.date <= to);
@@ -707,22 +753,7 @@
       const o = byItem[l.itemId] || (byItem[l.itemId] = { name: l.name, amount: 0, profit: 0 });
       o.amount += l.amount; o.profit += l.amount - l.cost;
     }));
-    let cashIn = 0, cashOut = 0;
-    state.customers.forEach(c => c.ledger.forEach(e => {
-      if (e.date < from || e.date > to) return;
-      if (e.type === 'payment' || e.type === 'advance') cashIn += -e.amt;
-      if (e.type === 'refund') cashIn -= e.amt;
-    }));
-    state.vendors.forEach(v => v.ledger.forEach(e => {
-      if (e.date < from || e.date > to) return;
-      if (e.type === 'payment' || e.type === 'advance') cashOut += -e.amt;
-    }));
-    // walk-in bills (no customer record) are always paid in full
-    inv.filter(i => !i.customerId).forEach(i => { cashIn += i.paid; });
-    // purchases without a vendor record are fully paid in cash
-    pur.filter(p => !p.vendorId).forEach(p => { cashOut += p.paid; });
-    // extra costs (transport, food...) are always paid by you directly
-    pur.forEach(p => { cashOut += p.extra || 0; });
+    const cf = cashFlow(from, to), cashIn = cf.totalIn, cashOut = cf.totalOut;
     return {
       bills: inv.length, sales: r2(sum(inv.map(i => i.total))), discount: r2(sum(inv.map(i => i.discount))),
       cogs: r2(sum(inv.map(i => i.cogs))), profit: r2(sum(inv.map(i => i.profit))),
@@ -754,7 +785,7 @@
     digits, issueCard, revokeCard, memberPct, UNITS, MARKET, load, save, uid, today, r2, r3, r4, sum, conv, compat, money, qtyFmt, localDate, nk, clean,
     get state() { return state; }, get lastError() { return lastError; }, get notice() { return notice; },
     item, find, rawItems, findRaw, places, addPerson, updatePerson, removePerson, payment, deleteLedgerEntry,
-    updateItem, removeItem, stockAdjust, purchase, deletePurchase, packGroups, rawsWithPacks, packetCost, packPlan, pack, undoBatch, suggest,
+    updateItem, addItem, cashFlow, removeItem, stockAdjust, purchase, deletePurchase, packGroups, rawsWithPacks, packetCost, packPlan, pack, undoBatch, suggest,
     stockIssues, vendorOrder, cancelVendorOrder, deleteVendorOrder, invoice, voidInvoice, deleteInvoice, order, cancelOrder, deleteOrder, movements, totals, lastDays, report,
     exportJSON, importJSON, resetAll, saveSettings, hasSaved, restoreText
   };
