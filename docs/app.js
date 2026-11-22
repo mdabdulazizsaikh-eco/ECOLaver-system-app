@@ -40,7 +40,7 @@
 
   /* ---------- state ---------- */
   const S = { stack: [], bill: null, order: null, buy: null, pack: null, pick: null, conf: null, formDone: null,
-    flt: { stock: 'all', cat: 'all', people: 'customers', orders: 'pending', ordk: 'customers', rep: 'today' }, q: {} };
+    flt: { stock: 'all', people: 'customers', orders: 'all', ordk: 'all', rep: 'today' }, q: {} };
   let cur = { n: 'home', p: {} };
   const kindName = i => i.manual ? 'Item' : KIND[i.kind].n;
   const KIND = { raw: { n: 'Raw material', c: '' }, pack: { n: 'Packaging', c: 'gold' }, product: { n: 'Packed product', c: 'blue' } };
@@ -419,8 +419,8 @@
     const tile = (n, icon, label, cls, sub) => '<button class="tile ' + (cls || '') + '" data-act="goto" data-n="' + n + '">' + ic(icon) + '<span>' + label + '</span>' + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
     return top(s.name, s.tagline, { home: true }) + '<div class="page stagger">' +
       '<div class="hero"><small>Today\'s sales</small><div class="big" data-count="' + t.todaySales + '">' + money(t.todaySales) + '</div><div class="sub"><span>' + t.todayBills + ' bills</span><span>Profit ' + money(t.todayProfit) + '</span></div></div>' +
-      '<div class="tiles">' + tile('bill', 'receipt', 'New Bill', 'gold') + tile('pack', 'pack', 'Pack Products') + tile('stock', 'box', 'Stock') + tile('items', 'tag', 'Items') +
-      tile('orders', 'clip', 'Pre-orders', '', t.pendingOrders ? t.pendingOrders + ' waiting' : '') + tile('invoices', 'receipt', 'All Bills') + tile('cards', 'users', 'Family Cards', 'gold') + tile('reports', 'chart', 'Reports') + tile('settings', 'gear', 'Settings') + '</div>' +
+      '<div class="tiles">' + tile('bill', 'receipt', 'New Bill', 'gold') + tile('pack', 'pack', 'Pack Products') + tile('stock', 'box', 'Stock') +
+      tile('orders', 'clip', 'Orders', '', t.pendingOrders ? t.pendingOrders + ' waiting' : '') + tile('invoices', 'receipt', 'All Bills') + tile('cards', 'users', 'Family Cards', 'gold') + tile('reports', 'chart', 'Reports') + '</div>' +
       (start ? '<div class="card"><h3>How to start</h3>' +
         [['1', 'Buy Stock', 'Stock page > Buy stock. Raw material first, then packaging', 'buyMenu'], ['2', 'Pack Products', 'Turn raw material into packets', 'pack'], ['3', 'New Bill', 'Sell and print the bill', 'bill']]
           .map(a => '<div class="row" data-act="goto" data-n="' + a[3] + '"><div class="ico gold">' + a[0] + '</div><div class="main"><div class="t">' + a[1] + '</div><div class="s">' + a[2] + '</div></div></div>').join('') + '</div>' : '') +
@@ -498,22 +498,6 @@
     '<div class="btns" style="margin-bottom:12px"><button class="btn gold" data-act="goto" data-n="buyMenu">' + ic('cart') + 'Buy stock</button><button class="btn ghost" data-act="goto" data-n="purchases">' + ic('clip') + 'Purchase history</button></div>' +
     '<div class="seg">' + [['all', 'All'], ['raw', 'Raw'], ['pack', 'Packaging'], ['product', 'Products']].map(a => '<button class="' + (S.flt.stock === a[0] ? 'on' : '') + '" data-act="fltStock" data-v="' + a[0] + '">' + a[1] + '</button>').join('') + '</div>' +
     '<div class="search"><input placeholder="Search items" data-in="q" data-k="stock" value="' + esc(S.q.stock || '') + '"></div><div class="card" id="list">' + stockList() + '</div></div>';
-
-  /* ---------- ITEMS (catalogue of what you sell) ---------- */
-  const sellable = i => !i.archived && (i.kind === 'product' || (i.kind === 'raw' && i.price > 0));
-  const catList = () => {
-    const f = S.flt.cat, q = (S.q.cat || '').toLowerCase();
-    const l = D.state.items.filter(i => sellable(i) && i.name.toLowerCase().includes(q) && (f === 'all' || (f === 'in' ? i.stock > 0 : i.stock <= 0))).sort((a, b) => (b.stock > 0) - (a.stock > 0) || a.name.localeCompare(b.name));
-    return l.map(i => '<div class="row" data-act="goto" data-n="item" data-id="' + i.id + '"><div class="ico ' + (i.stock > 0 ? KIND[i.kind].c : 'red') + '">' + ic('tag') + '</div><div class="main"><div class="t">' + esc(i.name) + '</div><div class="s">' + (i.price ? money(i.price) + ' per ' + i.unit : 'No price set') + '</div></div><div class="end">' +
-      (i.stock > 0 ? '<span class="pill">In stock</span><div class="s" style="margin-top:3px">' + qf(i.stock) + ' ' + i.unit + '</div>' : '<span class="pill bad">Out of stock</span>') + '</div></div>').join('') ||
-      empty('tag', D.state.items.some(sellable) ? 'Nothing here' : 'No items yet', D.state.items.some(sellable) ? 'Try another tab above.' : 'Packed products show up here by themselves. Tap "+ Add" to add any other item you sell.');
-  };
-  SCREENS.items = () => {
-    const all = D.state.items.filter(sellable), inn = all.filter(i => i.stock > 0).length;
-    return top('Items', inn + ' in stock · ' + (all.length - inn) + ' out of stock', { act: 'itemNew', label: '+ Add' }) + '<div class="page">' +
-      '<div class="seg">' + [['all', 'All ' + all.length], ['in', 'In stock'], ['out', 'Out of stock']].map(a => '<button class="' + (S.flt.cat === a[0] ? 'on' : '') + '" data-act="fltCat" data-v="' + a[0] + '">' + a[1] + '</button>').join('') + '</div>' +
-      '<div class="search"><input placeholder="Search items" data-in="q" data-k="cat" value="' + esc(S.q.cat || '') + '"></div><div class="card" id="list">' + catList() + '</div></div>';
-  };
 
   SCREENS.item = p => {
     const it = D.item(p.id);
@@ -677,17 +661,22 @@
   const orderTotals = () => { const c = calcOrder(S.order); return (c.disc ? '<div class="r"><span>Subtotal</span><b>' + money(c.sub) + '</b></div>' : '') + (c.memberDisc ? '<div class="r"><span>Family member discount</span><b>-' + money(c.memberDisc) + '</b></div>' : '') + (c.disc - c.memberDisc > 0.005 ? '<div class="r"><span>Extra discount</span><b>-' + money(D.r2(c.disc - c.memberDisc)) + '</b></div>' : '') + '<div class="r big" style="border:0;margin:0;padding-top:0"><span>Order total</span><b>' + money(c.total) + '</b></div><div class="r"><span>Advance received</span><b>' + money(c.adv) + '</b></div><div class="r"><span>Balance on delivery</span><b>' + money(c.bal) + '</b></div>'; };
   const waiting = o => o.lines.some(l => { const it = l.itemId ? D.item(l.itemId) : null; return !it || it.stock + 1e-9 < D.conv(l.qty, l.unit, it.unit); });
   SCREENS.orders = () => {
-    const f = S.flt.orders, k = S.flt.ordk, cu = k === 'customers';
-    const l = D.state[cu ? 'orders' : 'vorders'].filter(o => o.status === f).sort((a, b) => b.ts - a.ts);
-    const sts = cu ? [['pending', 'Waiting'], ['delivered', 'Delivered'], ['cancelled', 'Cancelled']] : [['pending', 'Waiting'], ['received', 'Received'], ['cancelled', 'Cancelled']];
-    const fx = sts.some(a => a[0] === f) ? f : 'pending';
-    return top('Pre-orders', cu ? 'Customer paid first, you deliver later' : 'You paid first, vendor delivers later', { act: 'orderNew', label: '+ New' }) + '<div class="page">' +
-      '<div class="seg">' + [['customers', 'From customers'], ['vendors', 'To vendors']].map(a => '<button class="' + (k === a[0] ? 'on' : '') + '" data-act="fltOrdK" data-v="' + a[0] + '">' + a[1] + '</button>').join('') + '</div>' +
-      '<div class="seg">' + sts.map(a => '<button class="' + (fx === a[0] ? 'on' : '') + '" data-act="fltOrders" data-v="' + a[0] + '">' + a[1] + '</button>').join('') + '</div><div class="card">' +
-      (l.filter(o => o.status === fx).map(o => cu ?
-        '<div class="row" data-act="orderOpen" data-id="' + o.id + '"><div class="ico gold">' + ic('clip') + '</div><div class="main"><div class="t">' + esc(o.customerName) + '</div><div class="s">' + o.no + (o.deliveryDate ? ' · Deliver ' + fmtDate(o.deliveryDate) : '') + '</div></div><div class="end"><b>' + money(o.total) + '</b>' + (o.advance ? '<span class="pill">Advance ' + money(o.advance) + '</span>' : '') + (o.status === 'pending' && waiting(o) ? '<span class="pill warn">Stock not ready</span>' : '') + '</div></div>' :
-        '<div class="row" data-act="vorderOpen" data-id="' + o.id + '"><div class="ico gold">' + ic('truck') + '</div><div class="main"><div class="t">' + esc(o.vendorName) + '</div><div class="s">' + o.no + (o.expectedDate ? ' · Expected ' + fmtDate(o.expectedDate) : '') + '</div></div><div class="end"><b>' + money(o.total) + '</b>' + (o.advance ? '<span class="pill">Advance paid ' + money(o.advance) + '</span>' : '') + '</div></div>').join('') ||
-        empty('clip', 'Nothing here', 'Tap "+ New" to add a pre-order.')) + '</div></div>';
+    const k = S.flt.ordk, f = S.flt.orders;
+    const norm = s => s === 'delivered' || s === 'received' ? 'done' : s;
+    let l = [];
+    if (k !== 'vendors') l = l.concat(D.state.orders.map(o => ({ o, cu: true })));
+    if (k !== 'customers') l = l.concat(D.state.vorders.map(o => ({ o, cu: false })));
+    const cnt = s => l.filter(x => s === 'all' || norm(x.o.status) === s).length;
+    l = l.filter(x => f === 'all' || norm(x.o.status) === f).sort((x, y) => y.o.ts - x.o.ts);
+    return top('Orders', 'All your orders in one place', { act: 'orderNew', label: '+ New' }) + '<div class="page">' +
+      '<div class="seg">' + [['all', 'All'], ['customers', 'From customers'], ['vendors', 'To vendors']].map(a => '<button class="' + (k === a[0] ? 'on' : '') + '" data-act="fltOrdK" data-v="' + a[0] + '">' + a[1] + '</button>').join('') + '</div>' +
+      '<div class="seg">' + [['all', 'All'], ['pending', 'Waiting'], ['done', 'Done'], ['cancelled', 'Cancelled']].map(a => '<button class="' + (f === a[0] ? 'on' : '') + '" data-act="fltOrders" data-v="' + a[0] + '">' + a[1] + '</button>').join('') + '</div><div class="card">' +
+      (l.map(({ o, cu }) => {
+        const st = norm(o.status), pill = st === 'pending' ? '<span class="pill warn">Waiting</span>' : st === 'done' ? '<span class="pill">' + (cu ? 'Delivered' : 'Received') + '</span>' : '<span class="pill bad">Cancelled</span>';
+        return cu ?
+          '<div class="row" data-act="orderOpen" data-id="' + o.id + '"><div class="ico gold">' + ic('clip') + '</div><div class="main"><div class="t">' + esc(o.customerName) + '</div><div class="s">Customer order · ' + o.no + (o.deliveryDate ? ' · Deliver ' + fmtDate(o.deliveryDate) : '') + '</div></div><div class="end"><b>' + money(o.total) + '</b>' + pill + (o.advance ? '<span class="pill">Advance ' + money(o.advance) + '</span>' : '') + (o.status === 'pending' && waiting(o) ? '<span class="pill warn">Stock not ready</span>' : '') + '</div></div>' :
+          '<div class="row" data-act="vorderOpen" data-id="' + o.id + '"><div class="ico blue">' + ic('truck') + '</div><div class="main"><div class="t">' + esc(o.vendorName) + '</div><div class="s">Vendor order · ' + o.no + (o.expectedDate ? ' · Expected ' + fmtDate(o.expectedDate) : '') + '</div></div><div class="end"><b>' + money(o.total) + '</b>' + pill + (o.advance ? '<span class="pill">Advance paid ' + money(o.advance) + '</span>' : '') + '</div></div>';
+      }).join('') || empty('clip', 'No orders here', 'Tap "+ New" to add an order.')) + '</div></div>';
   };
   SCREENS.orderNew = () => {
     if (!S.order) S.order = { customerId: '', lines: [], deliveryDate: '', advance: '', discount: '', method: 'Cash', note: '' };
@@ -714,7 +703,7 @@
       (p.fresh ? '<div class="success"><div class="tick">' + ic('check') + '</div><b style="font-size:18px">Order saved</b><p class="mut">Send the receipt to the customer</p></div>' : '') +
       paper(receiptDoc(o)) +
       '<div class="btns" style="margin-top:14px"><button class="btn gold" data-act="rcShare" data-id="' + o.id + '">' + ic('share') + 'WhatsApp</button><button class="btn" data-act="rcImage" data-id="' + o.id + '">' + ic('print') + 'Download / Share image</button></div>' +
-      '<button class="btn ghost block" style="margin-top:10px" data-act="goto" data-n="orders">All pre-orders</button></div>';
+      '<button class="btn ghost block" style="margin-top:10px" data-act="goto" data-n="orders">All orders</button></div>';
   };
 
   /* ---------- PEOPLE ---------- */
@@ -747,7 +736,7 @@
 
   /* ---------- MORE / REPORTS / SETTINGS ---------- */
   SCREENS.more = () => top('More', 'Everything else') + '<div class="page"><div class="card">' +
-    [['tag', 'gold', 'Items', 'What you sell, in stock or out of stock', 'items'], ['pack', 'blue', 'Pack Products', 'Turn raw material into packets', 'pack'], ['clip', 'gold', 'Pre-orders', 'Customer and vendor orders with advance', 'orders'], ['users', 'gold', 'Family Cards', 'Members and member discount', 'cards'], ['receipt', '', 'All bills', 'Search old bills', 'invoices'], ['clip', '', 'Packing history', 'What you packed before', 'packings'], ['chart', '', 'Reports', 'Sales, profit, cash', 'reports'], ['gear', '', 'Settings & backup', 'Logo, address, backup', 'settings']]
+    [['pack', 'blue', 'Pack Products', 'Turn raw material into packets', 'pack'], ['clip', 'gold', 'Orders', 'Customer and vendor orders, pre-orders with advance', 'orders'], ['users', 'gold', 'Family Cards', 'Members and member discount', 'cards'], ['receipt', '', 'All bills', 'Search old bills', 'invoices'], ['clip', '', 'Packing history', 'What you packed before', 'packings'], ['chart', '', 'Reports', 'Sales, profit, cash', 'reports'], ['gear', '', 'Settings & backup', 'Logo, address, backup', 'settings']]
       .map(a => '<div class="row" data-act="goto" data-n="' + a[4] + '"><div class="ico ' + a[1] + '">' + ic(a[0]) + '</div><div class="main"><div class="t">' + a[2] + '</div><div class="s">' + a[3] + '</div></div></div>').join('') + '</div></div>';
 
   /* ---------- FAMILY MEMBERSHIP CARD ---------- */
@@ -975,16 +964,6 @@
     },
     /* stock & items */
     itemEdit(el) { itemForm(el.dataset.id); },
-    fltCat(el) { S.flt.cat = el.dataset.v; draw(true); },
-    itemNew() {
-      openSheet('<h2>Add item</h2><div class="field"><label>Item name</label><input id="n-name" placeholder="e.g. Wooden comb"></div>' +
-        '<div class="two"><div class="field"><label>Sold by</label><select id="n-unit">' + D.UNITS.slice().sort((x, y) => (y === 'pcs') - (x === 'pcs')).map(u => '<option>' + u + '</option>').join('') + '</select></div><div class="field"><label>Selling price ₹</label><input id="n-price" type="number" inputmode="decimal" placeholder="0"></div></div>' +
-        '<div class="two"><div class="field"><label>Your cost ₹ (optional)</label><input id="n-cost" type="number" inputmode="decimal" placeholder="0"></div><div class="field"><label>Stock now (optional)</label><input id="n-stock" type="number" inputmode="decimal" placeholder="0"></div></div>' +
-        '<div class="hint" style="margin-bottom:12px">Leave stock empty to show it as Out of stock for now.</div><button class="btn primary block" data-act="itemNewSave">Add item</button>');
-    },
-    itemNewSave() {
-      try { D.addItem({ name: $('#n-name').value, unit: $('#n-unit').value, price: $('#n-price').value, cost: $('#n-cost').value, stock: $('#n-stock').value }); closeSheet(); toast('Item added'); draw(true); } catch (e) { toast(e.message, 1); }
-    },
     itemSave(el) {
       try {
         const id = el.dataset.id, it = D.item(id), v = s => $(s) ? $(s).value : null;
@@ -1111,8 +1090,14 @@
         else { const a = document.createElement('a'); a.href = cv.toDataURL('image/png'); a.download = 'receipt-' + rc.no + '.png'; document.body.appendChild(a); a.click(); a.remove(); }
       } catch (e) { toast(e.message, 1); }
     },
-    fltOrdK(el) { S.flt.ordk = el.dataset.v; S.flt.orders = 'pending'; draw(true); },
-    orderNew() { if (S.flt.ordk === 'vendors') { S.buy = newBuy('raw', 'order'); go('buy'); } else { S.order = null; go('orderNew'); } },
+    fltOrdK(el) { S.flt.ordk = el.dataset.v; draw(true); },
+    orderNew() {
+      openSheet('<h2>New order</h2><p class="mut" style="margin-bottom:12px;font-size:14px">Choose the kind of order</p>' +
+        '<button class="btn gold block" data-act="orderNewC">' + ic('clip') + 'Pre-order from a customer</button><div class="hint" style="margin:4px 0 12px">Customer pays advance, you deliver later.</div>' +
+        '<button class="btn primary block" data-act="orderNewV">' + ic('truck') + 'Pre-order to a vendor</button><div class="hint" style="margin-top:4px">You pay advance, vendor delivers later.</div>');
+    },
+    orderNewC() { closeSheet(); S.order = null; go('orderNew'); },
+    orderNewV() { closeSheet(); S.buy = newBuy('raw', 'order'); go('buy'); },
     vorderOpen(el) {
       const o = D.find('vorders', el.dataset.id);
       openSheet('<h2>' + o.no + ' · ' + esc(o.vendorName) + '</h2><p class="mut" style="margin-bottom:8px">Ordered ' + fmtDate(o.date) + (o.expectedDate ? ' · Expected ' + fmtDate(o.expectedDate) : '') + '</p><div class="card" style="padding:8px 12px">' +
@@ -1325,7 +1310,7 @@
     } else if (k === 'q') {
       S.q[t.dataset.k] = t.value;
       if (t.dataset.k === 'cards') { const ql = t.value.toLowerCase(), qd = ql.replace(/\D/g, ''); $('#list').innerHTML = cardList(D.state.customers.filter(c => c.member && !c.archived && (!ql || c.name.toLowerCase().includes(ql) || (qd && c.member.no.includes(qd))))); return; }
-      const L = { stock: stockList, people: peopleList, inv: invList, cat: catList }[t.dataset.k];
+      const L = { stock: stockList, people: peopleList, inv: invList }[t.dataset.k];
       if (L) $('#list').innerHTML = L();
     } else if (k === 'pq') {
       $('#plist').innerHTML = S.pick.kind === 'item' ? pickItems(t.value) : pickPeople(t.value);
