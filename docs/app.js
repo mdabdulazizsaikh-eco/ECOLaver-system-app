@@ -1387,30 +1387,43 @@
   if (!NATIVE && 'serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { }));
   /* ---------- pull down to refresh (like Chrome) ---------- */
   (function () {
-    let y0 = null, pull = 0, busy = false;
+    let y0 = null, x0 = 0, pull = 0, busy = false;
+    const H = 64, NEED = 70;
     const bar = document.createElement('div');
     bar.id = 'ptr'; bar.innerHTML = '<span>Pull down to refresh</span>';
     document.body.appendChild(bar);
-    const reset = () => { bar.style.transform = 'translateY(-100%)'; bar.classList.remove('go'); };
-    document.addEventListener('touchstart', e => {
-      y0 = (window.scrollY <= 0 && !busy && !$('.sheet-wrap') && e.touches.length === 1) ? e.touches[0].clientY : null; pull = 0;
-    }, { passive: true });
-    document.addEventListener('touchmove', e => {
+    const setY = px => { bar.style.transform = 'translateY(' + (px - H) + 'px)'; };
+    const reset = () => { bar.style.transition = 'transform .2s'; setY(0); bar.classList.remove('go'); };
+    const atTop = () => (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0) <= 2;
+    // At the very top the browser must not grab a downward drag (it would cancel our events),
+    // so at the top we allow only sideways and upward panning. Anywhere else scrolling stays normal.
+    const root = document.documentElement;
+    const fixTouch = () => { root.style.touchAction = (atTop() && !busy && !$('.sheet-wrap')) ? 'pan-x pan-up' : 'auto'; };
+    window.addEventListener('scroll', fixTouch, { passive: true });
+    setInterval(fixTouch, 250); fixTouch();
+    window.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'mouse') return;
+      y0 = (atTop() && !busy && !$('.sheet-wrap')) ? e.clientY : null;
+      x0 = e.clientX; pull = 0; bar.style.transition = 'none';
+    }, { passive: true, capture: true });
+    window.addEventListener('pointermove', e => {
+      if (y0 === null || e.pointerType === 'mouse') return;
+      const dy = e.clientY - y0, dx = Math.abs(e.clientX - x0);
+      if (dy <= 0 || dx > dy * 1.2) { if (pull) { pull = 0; reset(); } return; }
+      pull = Math.min(dy, 170);
+      setY(pull * 0.5);
+      bar.firstChild.textContent = pull > NEED ? 'Release to refresh' : 'Pull down to refresh';
+    }, { passive: true, capture: true });
+    const end = async () => {
       if (y0 === null) return;
-      const dy = e.touches[0].clientY - y0;
-      if (dy <= 0) { pull = 0; reset(); return; }
-      pull = Math.min(dy, 140);
-      bar.style.transform = 'translateY(' + (pull * 0.6 - 100) + '%)';
-      bar.firstChild.textContent = pull > 90 ? 'Release to refresh' : 'Pull down to refresh';
-    }, { passive: true });
-    document.addEventListener('touchend', async () => {
-      if (y0 === null) return;
-      const go2 = pull > 90; y0 = null; pull = 0;
-      if (!go2) { reset(); return; }
-      busy = true; bar.classList.add('go'); bar.style.transform = 'translateY(0)'; bar.firstChild.textContent = 'Refreshing...';
+      const ok = pull > NEED; y0 = null; pull = 0;
+      if (!ok) { reset(); return; }
+      busy = true; fixTouch(); bar.classList.add('go'); bar.style.transition = 'transform .2s'; setY(H); bar.firstChild.textContent = 'Refreshing...';
       try { draw(true); if (NATIVE) await checkUpdate(false); } catch (e) { }
-      setTimeout(() => { busy = false; reset(); toast('Refreshed'); }, 600);
-    }, { passive: true });
+      setTimeout(() => { busy = false; reset(); fixTouch(); toast('Refreshed'); }, 700);
+    };
+    window.addEventListener('pointerup', end, { passive: true, capture: true });
+    window.addEventListener('pointercancel', end, { passive: true, capture: true });
   })();
 
   draw();
