@@ -320,6 +320,7 @@
     const plan = raw.map((l, i) => {
       const n = i + 1, qty = +l.qty, total = +l.total || 0;
       if (!(qty > 0)) throw new Error('Item ' + n + ': enter the quantity');
+      if (!(r3(qty) > 0)) throw new Error('Item ' + n + ': quantity is too small');
       if (total < 0) throw new Error('Item ' + n + ': price cannot be negative');
       if (l.type === 'pack') {
         const rawName = clean(l.rawName);
@@ -341,6 +342,7 @@
       const ex = findRaw(name), pend = newRaws[nk(name)];
       const base = ex ? ex.unit : (pend ? pend.unit : unit);
       try { conv(1, unit, base); } catch (e) { throw new Error('Item ' + n + ': "' + (ex ? ex.name : name) + '" is counted in ' + compat(base).join(' or ')); }
+      if (!(r3(conv(qty, unit, base)) > 0)) throw new Error('Item ' + n + ': quantity is too small');
       if (!ex && !pend) newRaws[nk(name)] = { name, unit };
       return { type: 'raw', name: ex ? ex.name : (pend ? pend.name : name), key: nk(name), unit, qty, total };
     });
@@ -385,6 +387,7 @@
         unit = 'pcs';
         qtyBase = r3(l.qty);
       }
+      if (!(qtyBase > 0)) throw new Error('Quantity is too small to count');
       const share = sub > 0 ? extra * (l.total / sub) : extra / plan.length;
       const landed = l.total + share;
       const old = Math.max(it.stock, 0);
@@ -409,6 +412,8 @@
   function deletePurchase(id) {
     const pu = find('purchases', id);
     if (!pu) throw new Error('Not found');
+    const used = pu.lines.filter(l => { const it = item(l.itemId); return it && it.stock + 1e-9 < l.qtyBase; });
+    if (used.length) throw new Error('Cannot delete: ' + used.map(l => l.name).join(', ') + ' is already used (packed or sold). Undo that first.');
     pu.lines.forEach(l => { const it = item(l.itemId); if (it) it.stock = r3(it.stock - l.qtyBase); });
     dropLedgerRef('vendors', pu.vendorId, pu.id);
     if (pu.orderId) { const vo = find('vorders', pu.orderId); if (vo) { vo.status = 'pending'; vo.purchaseId = ''; } }
@@ -500,6 +505,8 @@
   function undoBatch(id) {
     const b = find('batches', id);
     if (!b) throw new Error('Not found');
+    const sold = b.entries.filter(e => { const p = item(e.productId); return p && p.stock + 1e-9 < e.count; });
+    if (sold.length) throw new Error('Cannot undo: ' + sold.map(e => e.name).join(', ') + ' is already sold. Cancel those bills first.');
     const raw = item(b.rawId);
     if (raw) raw.stock = r3(raw.stock + b.rawUsed);
     b.packUsed.forEach(u => { const p = item(u.itemId); if (p) p.stock = r3(p.stock + u.qty); });
@@ -544,7 +551,10 @@
       paid = total;
     }
     let order = null;
-    if (d.orderId) order = find('orders', d.orderId);
+    if (d.orderId) {
+      order = find('orders', d.orderId);
+      if (!order || order.status !== 'pending') throw new Error('This order is not waiting for delivery any more');
+    }
     const advanceUsed = order ? order.advance : 0;
     const no = state.settings.invoicePrefix + pad(state.counters.invoice++, 4);
     const cogs = r2(sum(lines.map(l => l.cost)));
@@ -751,7 +761,8 @@
     const byItem = {};
     inv.forEach(i => i.lines.forEach(l => {
       const o = byItem[l.itemId] || (byItem[l.itemId] = { name: l.name, amount: 0, profit: 0 });
-      o.amount += l.amount; o.profit += l.amount - l.cost;
+      const net = i.subtotal > 0 ? l.amount * i.total / i.subtotal : l.amount; // bill discount shared by item
+      o.amount += net; o.profit += net - l.cost;
     }));
     const cf = cashFlow(from, to), cashIn = cf.totalIn, cashOut = cf.totalOut;
     return {

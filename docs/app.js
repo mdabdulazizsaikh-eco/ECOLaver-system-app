@@ -42,6 +42,7 @@
   const S = { stack: [], bill: null, order: null, buy: null, pack: null, pick: null, conf: null, formDone: null,
     flt: { stock: 'all', people: 'customers', orders: 'all', ordk: 'all', rep: 'today' }, q: {} };
   let cur = { n: 'home', p: {} };
+  const pl = (n, w, p) => n + ' ' + (n === 1 ? w : (p || w + 's'));
   const kindName = i => i.manual ? 'Item' : KIND[i.kind].n;
   const KIND = { raw: { n: 'Raw material', c: '' }, pack: { n: 'Packaging', c: 'gold' }, product: { n: 'Packed product', c: 'blue' } };
 
@@ -418,7 +419,7 @@
     const start = st.items.length === 0;
     const tile = (n, icon, label, cls, sub) => '<button class="tile ' + (cls || '') + '" data-act="goto" data-n="' + n + '">' + ic(icon) + '<span>' + label + '</span>' + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
     return top(s.name, s.tagline, { home: true }) + '<div class="page stagger">' +
-      '<div class="hero"><small>Today\'s sales</small><div class="big" data-count="' + t.todaySales + '">' + money(t.todaySales) + '</div><div class="sub"><span>' + t.todayBills + ' bills</span><span>Profit ' + money(t.todayProfit) + '</span></div></div>' +
+      '<div class="hero"><small>Today\'s sales</small><div class="big" data-count="' + t.todaySales + '">' + money(t.todaySales) + '</div><div class="sub"><span>' + pl(t.todayBills, 'bill') + '</span><span>Profit ' + money(t.todayProfit) + '</span></div></div>' +
       '<div class="tiles">' + tile('bill', 'receipt', 'New Bill', 'gold') + tile('pack', 'pack', 'Pack Products') + tile('stock', 'box', 'Stock') +
       tile('orders', 'clip', 'Orders', '', t.pendingOrders ? t.pendingOrders + ' waiting' : '') + tile('invoices', 'receipt', 'All Bills') + tile('cards', 'users', 'Family Cards', 'gold') + tile('reports', 'chart', 'Reports') + '</div>' +
       (start ? '<div class="card"><h3>How to start</h3>' +
@@ -483,7 +484,7 @@
     return l.slice(0, 120).map(i => '<div class="row" data-act="goto" data-n="invoice" data-id="' + i.id + '"><div class="ico ' + (i.void ? 'red' : '') + '">' + ic('receipt') + '</div><div class="main"><div class="t">' + esc(i.customerName) + '</div><div class="s">' + esc(i.no) + ' · ' + fmtDate(i.date) + '</div></div><div class="end"><b>' + money(i.total) + '</b>' +
       (i.void ? '<span class="pill bad">Cancelled</span>' : i.billBalance > 0.005 ? '<span class="pill warn">Due ' + money(i.billBalance) + '</span>' : '<span class="pill">Paid</span>') + '</div></div>').join('') || empty('receipt', 'No bills yet', 'Your bills will appear here.');
   };
-  SCREENS.invoices = () => top('All Bills', D.state.invoices.length + ' bills') + '<div class="page"><div class="search"><input placeholder="Search bill no or customer" data-in="q" data-k="inv" value="' + esc(S.q.inv || '') + '"></div><div class="card" id="list">' + invList() + '</div></div>';
+  SCREENS.invoices = () => top('All Bills', pl(D.state.invoices.length, 'bill')) + '<div class="page"><div class="search"><input placeholder="Search bill no or customer" data-in="q" data-k="inv" value="' + esc(S.q.inv || '') + '"></div><div class="card" id="list">' + invList() + '</div></div>';
 
   /* ---------- STOCK (view only: stock changes by buying, packing and selling) ---------- */
   const stockList = () => {
@@ -600,7 +601,7 @@
       '<div class="tbox" id="utot">' + buyTotals(c) + '</div><div class="sticky-save"><button class="btn primary block" data-act="buySave">' + (ord ? 'Save order' : 'Save purchase') + '</button></div></div>';
   };
 
-  SCREENS.purchases = () => top('Purchase History', D.state.purchases.length + ' entries') + '<div class="page"><div class="card">' +
+  SCREENS.purchases = () => top('Purchase History', pl(D.state.purchases.length, 'entry', 'entries')) + '<div class="page"><div class="card">' +
     (D.state.purchases.slice().sort((a, b) => b.ts - a.ts).slice(0, 100).map(pu => '<div class="row" data-act="purOpen" data-id="' + pu.id + '"><div class="ico gold">' + ic('cart') + '</div><div class="main"><div class="t">' + esc(pu.vendorName) + '</div><div class="s">' + esc(pu.no) + ' · ' + fmtDate(pu.date) + ' · ' + pu.lines.map(l => esc(l.name)).join(', ') + '</div></div><div class="end"><b>' + money(pu.total) + '</b>' + ((pu.items == null ? pu.total : pu.items) - pu.paid > 0.005 ? '<span class="pill warn">Unpaid ' + money(D.r2((pu.items == null ? pu.total : pu.items) - pu.paid)) + '</span>' : '<span class="pill">Paid</span>') + '</div></div>').join('') || empty('cart', 'No purchases yet', 'Use "Buy Stock" to add one.')) + '</div></div>';
   /* ---------- PACK PRODUCTS ---------- */
   SCREENS.pack = () => {
@@ -647,7 +648,7 @@
       '<div class="card"><div class="field" style="margin-bottom:0"><label>Other cost for this packing: labour, gas... (₹)</label><input type="number" inputmode="decimal" placeholder="0" value="' + esc(S.pack.extra) + '" data-in="f" data-d="pack" data-f="extra"><div class="hint">Optional. Shared across the packets by weight.</div></div></div>' +
       '<div class="tbox" id="ptot">' + packTotals() + '</div><div class="sticky-save"><button class="btn primary block" data-act="packSave">Pack now</button></div></div>';
   };
-  SCREENS.packings = () => top('Packing History', D.state.batches.length + ' entries') + '<div class="page"><div class="card">' +
+  SCREENS.packings = () => top('Packing History', pl(D.state.batches.length, 'entry', 'entries')) + '<div class="page"><div class="card">' +
     (D.state.batches.slice().sort((a, b) => b.ts - a.ts).slice(0, 100).map(b => '<div class="row" data-act="batchOpen" data-id="' + b.id + '"><div class="ico blue">' + ic('pack') + '</div><div class="main"><div class="t">' + esc(b.rawName) + '</div><div class="s">' + fmtDate(b.date) + ' · ' + b.entries.map(e => e.count + ' × ' + esc(e.name.replace(b.rawName, '').trim())).join(', ') + '</div></div><div class="end"><b>' + money(b.total) + '</b></div></div>').join('') || empty('pack', 'Nothing packed yet', 'Use "Pack Products" to start.')) + '</div></div>';
 
   /* ---------- ORDERS ---------- */
@@ -779,10 +780,10 @@
     const nOwe = D.state.customers.filter(c => c.balance > 0.005).length, nPay = D.state.vendors.filter(v => v.balance > 0.005).length;
     return top('Reports', 'Tap any number to see the details') + '<div class="page stagger">' + periodSeg(f) +
       '<div class="hero" data-act="goto" data-n="repDetail" data-kind="profit" style="cursor:pointer"><small>Profit · ' + PERIOD[f] + '</small><div class="big">' + money(r.profit) + '</div><div class="sub"><span>Sales ' + money(r.sales) + '</span><span>− Cost ' + money(r.cogs) + '</span></div></div>' +
-      '<div class="grid2">' + rtile('', 'Sales', money(r.sales), 'sales', r.bills + ' bills') + rtile('green', 'Cash in', money(r.cashIn), 'cashin', 'Money received') + rtile('red', 'Cash out', money(r.cashOut), 'cashout', 'Money paid') + rtile('gold', 'Stock bought', money(r.purchases), 'bought', 'Purchase value') + '</div>' +
+      '<div class="grid2">' + rtile('', 'Sales', money(r.sales), 'sales', pl(r.bills, 'bill')) + rtile('green', 'Cash in', money(r.cashIn), 'cashin', 'Money received') + rtile('red', 'Cash out', money(r.cashOut), 'cashout', 'Money paid') + rtile('gold', 'Stock bought', money(r.purchases), 'bought', 'Purchase value') + '</div>' +
       '<div class="card"><h3>Money position now <small>not affected by the date above</small></h3>' +
-      rrow('owe', 'Customers owe you', nOwe + ' customers · money to receive', money(t.customerDue), 'neg') +
-      rrow('payable', 'You owe vendors', nPay + ' vendors · money to pay', money(t.vendorDue), 'neg') +
+      rrow('owe', 'Customers owe you', nOwe + (nOwe === 1 ? ' customer' : ' customers') + ' · money to receive', money(t.customerDue), 'neg') +
+      rrow('payable', 'You owe vendors', nPay + (nPay === 1 ? ' vendor' : ' vendors') + ' · money to pay', money(t.vendorDue), 'neg') +
       rrow('custadv', 'Advance taken from customers', 'You must deliver goods for this', money(t.customerAdvance)) +
       rrow('vendadv', 'Advance given to vendors', 'Vendors must give you goods for this', money(t.vendorAdvance)) +
       rrow('stockval', 'Stock worth', 'All goods you hold, at your cost', money(t.stockValue)) + '</div>' +
@@ -804,12 +805,12 @@
     const none = (t, s) => empty('chart', t, s || '');
     const grp = (list, keyF) => { const m = {}; list.forEach(x => { const kk = keyF(x); (m[kk] || (m[kk] = [])).push(x); }); return Object.keys(m).map(kk => ({ key: kk, list: m[kk] })); };
     const bill = i => '<div class="row" data-act="goto" data-n="invoice" data-id="' + i.id + '"><div class="main"><div class="t">' + esc(i.customerName) + '</div><div class="s">' + esc(i.no) + ' · ' + fmtDate(i.date) + '</div></div><div class="end"><b>' + money(i.total) + '</b><div class="s">Profit ' + money(i.profit) + '</div></div></div>';
-    const byItem = () => { const o = {}; inv.forEach(i => i.lines.forEach(l => { const x = o[l.itemId] || (o[l.itemId] = { name: l.name, amount: 0, cost: 0, qty: 0, unit: l.unit }); x.amount += l.amount; x.cost += l.cost; x.qty += (l.qty || 0); })); return Object.values(o).sort((p, q) => (q.amount - q.cost) - (p.amount - p.cost)); };
+    const byItem = () => { const o = {}; inv.forEach(i => i.lines.forEach(l => { const x = o[l.itemId] || (o[l.itemId] = { name: l.name, amount: 0, cost: 0, qty: 0, unit: l.unit }); x.amount += (i.subtotal > 0 ? l.amount * i.total / i.subtotal : l.amount); x.cost += l.cost; x.qty += (l.qty || 0); })); return Object.values(o).sort((p, q) => (q.amount - q.cost) - (p.amount - p.cost)); };
     const person = (kk, p, hint, val, cls) => '<div class="row" data-act="goto" data-n="person" data-kind="' + kk + '" data-id="' + p.id + '"><div class="ico">' + esc(p.name.slice(0, 1).toUpperCase()) + '</div><div class="main"><div class="t">' + esc(p.name) + '</div><div class="s">' + hint + '</div></div><div class="end"><b class="' + (cls || '') + '">' + val + '</b></div></div>';
     const flow = (x, outgoing) => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(x.who) + '</div><div class="s">' + esc(x.what || '') + ' · ' + fmtDate(x.date) + (x.method ? ' · ' + esc(x.method) : '') + '</div></div><div class="end"><b class="' + (x.amt < 0 ? 'neg' : (outgoing ? '' : 'pos')) + '">' + (x.amt < 0 ? '−' : '') + money(Math.abs(x.amt)) + '</b></div></div>';
     let title = '', sub = PERIOD[f], h = '';
     if (k === 'sales') {
-      title = 'Sales'; h = sumTop('Total sales · ' + PERIOD[f], money(D.r2(D.sum(inv.map(i => i.total))))) + '<div class="card"><h3>' + inv.length + ' bills</h3>' + (inv.map(bill).join('') || none('No bills in this period')) + '</div>';
+      title = 'Sales'; h = sumTop('Total sales · ' + PERIOD[f], money(D.r2(D.sum(inv.map(i => i.total))))) + '<div class="card"><h3>' + pl(inv.length, 'bill') + '</h3>' + (inv.map(bill).join('') || none('No bills in this period')) + '</div>';
     } else if (k === 'profit') {
       const sales = D.r2(D.sum(inv.map(i => i.total))), cogs = D.r2(D.sum(inv.map(i => i.cogs)));
       title = 'Profit'; h = sumTop('Profit · ' + PERIOD[f], money(D.r2(sales - cogs))) +
@@ -821,28 +822,28 @@
       title = 'Cost of goods sold'; h = sumTop('What the sold goods cost you', money(D.r2(D.sum(inv.map(i => i.cogs))))) + '<div class="card"><h3>By item</h3>' + (byItem().map(x => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(x.name) + '</div><div class="s">Sold for ' + money(D.r2(x.amount)) + '</div></div><div class="end"><b>' + money(D.r2(x.cost)) + '</b></div></div>').join('') || none('No sales in this period')) + '</div>';
     } else if (k === 'discount') {
       const l = inv.filter(i => i.discount > 0.005);
-      title = 'Discount given'; h = sumTop('Total discount · ' + PERIOD[f], money(D.r2(D.sum(l.map(i => i.discount))))) + '<div class="card"><h3>' + l.length + ' bills with discount</h3>' + (l.map(i => '<div class="row" data-act="goto" data-n="invoice" data-id="' + i.id + '"><div class="main"><div class="t">' + esc(i.customerName) + '</div><div class="s">' + esc(i.no) + ' · ' + fmtDate(i.date) + (i.memberDiscount ? ' · member ' + money(i.memberDiscount) : '') + '</div></div><div class="end"><b>' + money(i.discount) + '</b></div></div>').join('') || none('No discount in this period')) + '</div>';
+      title = 'Discount given'; h = sumTop('Total discount · ' + PERIOD[f], money(D.r2(D.sum(l.map(i => i.discount))))) + '<div class="card"><h3>' + pl(l.length, 'bill') + ' with discount</h3>' + (l.map(i => '<div class="row" data-act="goto" data-n="invoice" data-id="' + i.id + '"><div class="main"><div class="t">' + esc(i.customerName) + '</div><div class="s">' + esc(i.no) + ' · ' + fmtDate(i.date) + (i.memberDiscount ? ' · member ' + money(i.memberDiscount) : '') + '</div></div><div class="end"><b>' + money(i.discount) + '</b></div></div>').join('') || none('No discount in this period')) + '</div>';
     } else if (k === 'cashin' || k === 'cashout') {
       const cf = D.cashFlow(from, to), out = k === 'cashout', l = out ? cf.outs : cf.ins, tot = out ? cf.totalOut : cf.totalIn, mm = {};
       l.forEach(x => { const m = x.method || 'Other'; mm[m] = D.r2((mm[m] || 0) + x.amt); });
       title = out ? 'Cash out' : 'Cash in';
       h = sumTop((out ? 'Money you paid · ' : 'Money you received · ') + PERIOD[f], money(tot)) +
         (Object.keys(mm).length > 1 ? '<div class="card"><h3>By payment method</h3>' + Object.keys(mm).map(m => '<div class="kv"><span>' + esc(m) + '</span><b>' + money(mm[m]) + '</b></div>').join('') + '</div>' : '') +
-        '<div class="card"><h3>' + l.length + ' entries · newest first</h3>' + (l.map(x => flow(x, out)).join('') || none(out ? 'No payments made in this period' : 'No money received in this period')) + '</div>';
+        '<div class="card"><h3>' + pl(l.length, 'entry', 'entries') + ' · newest first</h3>' + (l.map(x => flow(x, out)).join('') || none(out ? 'No payments made in this period' : 'No money received in this period')) + '</div>';
     } else if (k === 'bought') {
-      title = 'Stock bought'; h = sumTop('Purchase value · ' + PERIOD[f], money(D.r2(D.sum(pur.map(p => p.total))))) + '<div class="card"><h3>' + pur.length + ' purchases</h3>' + (pur.map(pu => '<div class="row" data-act="purOpen" data-id="' + pu.id + '"><div class="main"><div class="t">' + esc(pu.vendorName) + '</div><div class="s">' + esc(pu.no) + ' · ' + fmtDate(pu.date) + ' · ' + pu.lines.map(l => esc(l.name)).join(', ') + '</div></div><div class="end"><b>' + money(pu.total) + '</b></div></div>').join('') || none('No purchases in this period')) + '</div>';
+      title = 'Stock bought'; h = sumTop('Purchase value · ' + PERIOD[f], money(D.r2(D.sum(pur.map(p => p.total))))) + '<div class="card"><h3>' + pl(pur.length, 'purchase') + '</h3>' + (pur.map(pu => '<div class="row" data-act="purOpen" data-id="' + pu.id + '"><div class="main"><div class="t">' + esc(pu.vendorName) + '</div><div class="s">' + esc(pu.no) + ' · ' + fmtDate(pu.date) + ' · ' + pu.lines.map(l => esc(l.name)).join(', ') + '</div></div><div class="end"><b>' + money(pu.total) + '</b></div></div>').join('') || none('No purchases in this period')) + '</div>';
     } else if (k === 'expenses') {
       const l = pur.filter(p => p.extra > 0);
-      title = 'Extra costs'; h = sumTop('Transport, food and others · ' + PERIOD[f], money(D.r2(D.sum(l.map(p => p.extra))))) + '<div class="card"><h3>' + l.length + ' purchases with extra cost</h3>' + (l.map(p => '<div class="row" data-act="purOpen" data-id="' + p.id + '"><div class="main"><div class="t">' + esc((p.extras || []).filter(x => x.amount > 0).map(x => x.label || 'Extra').join(', ') || 'Extra cost') + '</div><div class="s">' + esc(p.no) + ' · ' + fmtDate(p.date) + '</div></div><div class="end"><b>' + money(p.extra) + '</b></div></div>').join('') || none('No extra costs in this period')) + '</div>';
+      title = 'Extra costs'; h = sumTop('Transport, food and others · ' + PERIOD[f], money(D.r2(D.sum(l.map(p => p.extra))))) + '<div class="card"><h3>' + pl(l.length, 'purchase') + ' with extra cost</h3>' + (l.map(p => '<div class="row" data-act="purOpen" data-id="' + p.id + '"><div class="main"><div class="t">' + esc((p.extras || []).filter(x => x.amount > 0).map(x => x.label || 'Extra').join(', ') || 'Extra cost') + '</div><div class="s">' + esc(p.no) + ' · ' + fmtDate(p.date) + '</div></div><div class="end"><b>' + money(p.extra) + '</b></div></div>').join('') || none('No extra costs in this period')) + '</div>';
     } else if (k === 'daily') {
-      title = 'Day by day sales'; h = '<div class="card">' + (grp(inv, i => i.date).sort((x, y) => y.key.localeCompare(x.key)).map(g => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + fmtDate(g.key) + '</div><div class="s">' + g.list.length + ' bills · Profit ' + money(D.r2(D.sum(g.list.map(i => i.profit)))) + '</div></div><div class="end"><b>' + money(D.r2(D.sum(g.list.map(i => i.total)))) + '</b></div></div>').join('') || none('No sales in this period')) + '</div>';
+      title = 'Day by day sales'; h = '<div class="card">' + (grp(inv, i => i.date).sort((x, y) => y.key.localeCompare(x.key)).map(g => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + fmtDate(g.key) + '</div><div class="s">' + pl(g.list.length, 'bill') + ' · Profit ' + money(D.r2(D.sum(g.list.map(i => i.profit)))) + '</div></div><div class="end"><b>' + money(D.r2(D.sum(g.list.map(i => i.total)))) + '</b></div></div>').join('') || none('No sales in this period')) + '</div>';
     } else if (k === 'custsales') {
-      title = 'Sales by customer'; h = '<div class="card">' + (grp(inv, i => i.customerName).sort((x, y) => D.sum(y.list.map(i => i.total)) - D.sum(x.list.map(i => i.total))).map(g => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(g.key) + '</div><div class="s">' + g.list.length + ' bills</div></div><div class="end"><b>' + money(D.r2(D.sum(g.list.map(i => i.total)))) + '</b></div></div>').join('') || none('No sales in this period')) + '</div>';
+      title = 'Sales by customer'; h = '<div class="card">' + (grp(inv, i => i.customerName).sort((x, y) => D.sum(y.list.map(i => i.total)) - D.sum(x.list.map(i => i.total))).map(g => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(g.key) + '</div><div class="s">' + pl(g.list.length, 'bill') + '</div></div><div class="end"><b>' + money(D.r2(D.sum(g.list.map(i => i.total)))) + '</b></div></div>').join('') || none('No sales in this period')) + '</div>';
     } else if (k === 'vendbuy') {
-      title = 'Buying by vendor'; h = '<div class="card">' + (grp(pur, p => p.vendorName).sort((x, y) => D.sum(y.list.map(p => p.total)) - D.sum(x.list.map(p => p.total))).map(g => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(g.key) + '</div><div class="s">' + g.list.length + ' purchases</div></div><div class="end"><b>' + money(D.r2(D.sum(g.list.map(p => p.total)))) + '</b></div></div>').join('') || none('No purchases in this period')) + '</div>';
+      title = 'Buying by vendor'; h = '<div class="card">' + (grp(pur, p => p.vendorName).sort((x, y) => D.sum(y.list.map(p => p.total)) - D.sum(x.list.map(p => p.total))).map(g => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(g.key) + '</div><div class="s">' + pl(g.list.length, 'purchase') + '</div></div><div class="end"><b>' + money(D.r2(D.sum(g.list.map(p => p.total)))) + '</b></div></div>').join('') || none('No purchases in this period')) + '</div>';
     } else if (k === 'cards') {
       const l = st.customers.filter(c => c.member && c.member.since >= from && c.member.since <= to);
-      title = 'Family cards'; h = sumTop('Card fees received · ' + PERIOD[f], money(D.r2(D.sum(l.map(c => c.member.fee))))) + '<div class="card"><h3>' + l.length + ' new members</h3>' + (l.map(c => person('customers', c, 'Card since ' + fmtDate(c.member.since), money(c.member.fee))).join('') || none('No new cards in this period')) + '</div>';
+      title = 'Family cards'; h = sumTop('Card fees received · ' + PERIOD[f], money(D.r2(D.sum(l.map(c => c.member.fee))))) + '<div class="card"><h3>' + pl(l.length, 'new member') + '</h3>' + (l.map(c => person('customers', c, 'Card since ' + fmtDate(c.member.since), money(c.member.fee))).join('') || none('No new cards in this period')) + '</div>';
       sub = PERIOD[f];
     } else if (k === 'owe' || k === 'custadv') {
       const owe = k === 'owe', l = st.customers.filter(c => owe ? c.balance > 0.005 : c.balance < -0.005).sort((x, y) => Math.abs(y.balance) - Math.abs(x.balance));
