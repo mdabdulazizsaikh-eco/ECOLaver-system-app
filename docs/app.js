@@ -785,7 +785,7 @@
       (wl.length ? '<div class="card"><h3>Work-wise total</h3>' + wl.map(w => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(w.work) + '</div><div class="s">' + pl(w.n, 'payment') + '</div></div><div class="end"><b>' + money(w.total) + '</b></div></div>').join('') + '</div>' : '') +
       (sp.length ? '<div class="card"><h3>Who was paid</h3>' + sp.sort((a, b) => b.paid - a.paid).map(x => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(x.who) + '</div><div class="s">' + esc(x.work) + (x.agreed > 0 ? ' · Agreed ' + money(x.agreed) : '') + '</div></div><div class="end"><b>' + money(x.paid) + '</b>' + (x.due !== null ? (x.due > 0.005 ? '<span class="pill warn">Due ' + money(x.due) + '</span>' : '<span class="pill">Fully paid</span>') : '') + '</div></div>').join('') + '</div>' : '') +
       '<div class="card"><h3>All entries <small>Tap to change</small></h3>' + (l.map(x => '<div class="row ordrow" data-act="spendEdit" data-id="' + x.id + '"><div class="ico ' + (x.source === 'pocket' ? 'gold' : 'green') + '">' + ic('receipt') + '</div><div class="main"><div class="t">' + esc(x.work) + '</div><div class="s">' + (x.who ? esc(x.who) + ' · ' : '') + fmtDate(x.date) + ' · ' + esc(x.method) + '</div></div><div class="end"><b>' + money(x.amount) + '</b>' + (x.source === 'pocket' ? '<span class="pill warn">Own pocket</span>' : '') + '</div></div>').join('') || empty('receipt', 'No expenses yet', 'Tap "+ Add" to write the first one.')) + '</div>' +
-      '<div class="btns"><button class="btn ghost" data-act="headEdit" data-id="' + h.id + '">Rename this head</button>' + (l.length ? '' : '<button class="btn danger" data-act="headDel" data-id="' + h.id + '">Delete head</button>') + '</div></div>';
+      '<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="headPdfAsk" data-id="' + h.id + '">' + ic('clip') + 'PDF of this head</button></div><div class="btns"><button class="btn ghost" data-act="headEdit" data-id="' + h.id + '">Rename this head</button>' + (l.length ? '' : '<button class="btn danger" data-act="headDel" data-id="' + h.id + '">Delete head</button>') + '</div></div>';
   };
 
   const monthStart = (d) => d.slice(0, 8) + '01';
@@ -807,6 +807,12 @@
   };
 
   /* ----- the statement as pictures, then a PDF ----- */
+  function headStatement(from, to, headId) {
+    const st = D.fundStatement(from, to), h = D.find('heads', headId), rows = []; let run = 0;
+    st.rows.filter(r => r.kind === 'out' && r.headId === headId).forEach(r => { run = D.r2(run + r.debit); rows.push(Object.assign({}, r, { balance: run, title: r.title.replace(/^[^:]*:\s*/, '') })); });
+    const hh = st.heads.find(x => x.id === headId) || { total: 0, fund: 0, pocket: 0, works: [] };
+    return { only: true, headName: h ? h.name : '', from, to, rows, total: hh.total, fund: hh.fund, pocket: hh.pocket, heads: [hh], specialists: st.specialists.filter(x => x.headId === headId), investors: [] };
+  }
   function statementPages(st) {
     const s = D.state.settings, W = 1240, H = 1754, M = 70, F = 'system-ui, -apple-system, Roboto, Arial, sans-serif', GREEN = '#0a6b3a', INK = '#16261d', MUT = '#5d6b63';
     const pages = []; let c, x, y, hdrCb = null;
@@ -842,12 +848,12 @@
       const section = t => { need(90); put(t, M, y + 10, 'bold 30px ' + F, GREEN); x.fillStyle = '#eec32f'; x.fillRect(M, y + 22, 90, 4); y += 62; };
       // ---- title
       newPage(true);
-      put('Investment & Expense Statement', M, y + 8, 'bold 40px ' + F, INK);
+      put(st.only ? st.headName + ' - Expense Statement' : 'Investment & Expense Statement', M, y + 8, 'bold 40px ' + F, INK);
       put(fmtDate(st.from) + '  to  ' + fmtDate(st.to), M, y + 50, '27px ' + F, MUT);
       put('Prepared on ' + fmtDate(D.today()), W - M, y + 50, '24px ' + F, MUT, 'right');
       y += 96;
       // ---- summary
-      const sumRows = [['Opening balance (fund)', money(st.opening), 0], ['Money invested in this period', '+ ' + money(st.invested), 1], ['Spent from fund', '- ' + money(st.fundSpent), 2], ['Closing balance (fund)', money(st.closing), 3],
+      const sumRows = st.only ? [['Total spent on ' + st.headName, money(st.total), 3], ['Paid from investors\' fund', money(st.fund), 4], ['Paid from own pocket', money(st.pocket), 4], ['Number of payments', String(st.rows.length), 4]] : [['Opening balance (fund)', money(st.opening), 0], ['Money invested in this period', '+ ' + money(st.invested), 1], ['Spent from fund', '- ' + money(st.fundSpent), 2], ['Closing balance (fund)', money(st.closing), 3],
         ['Total spent in this period', money(st.spent), 4], ['Of which paid from own pocket', money(st.pocketSpent), 4], ['Total invested till ' + fmtDate(st.to), money(st.totalInvestedToDate), 4]];
       need(sumRows.length * 48 + 40);
       x.fillStyle = '#f2f7f4'; x.beginPath(); x.roundRect ? x.roundRect(M, y - 12, W - M * 2, sumRows.length * 48 + 24, 18) : x.rect(M, y - 12, W - M * 2, sumRows.length * 48 + 24); x.fill();
@@ -855,7 +861,7 @@
         const bold = r[2] === 3, py = y + 28 + i * 48;
         put(r[0], M + 28, py, (bold ? 'bold ' : '') + '27px ' + F, INK);
         put(r[1], W - M - 28, py, 'bold 27px ' + F, r[2] === 1 ? '#0a6b3a' : r[2] === 2 ? '#b3261e' : INK, 'right');
-        if (i === 3) { x.fillStyle = '#d6e3db'; x.fillRect(M + 28, py + 14, W - M * 2 - 56, 2); }
+        if (i === 3 && !st.only) { x.fillStyle = '#d6e3db'; x.fillRect(M + 28, py + 14, W - M * 2 - 56, 2); }
       });
       y += sumRows.length * 48 + 56;
       // ---- investors
@@ -896,13 +902,13 @@
       }
       // ---- transactions
       need(200);
-      section('All entries, day by day');
+      section(st.only ? 'All payments, day by day' : 'All entries, day by day');
       const thead = () => {
         x.fillStyle = '#e4f2ea'; x.fillRect(M, y - 28, W - M * 2, 46);
-        put('Date', M + 14, y + 4, 'bold 23px ' + F, GREEN); put('Details', 250, y + 4, 'bold 23px ' + F, GREEN); put('Money in', 840, y + 4, 'bold 23px ' + F, GREEN, 'right'); put('Money out', 1010, y + 4, 'bold 23px ' + F, GREEN, 'right'); put('Balance', W - M - 14, y + 4, 'bold 23px ' + F, GREEN, 'right'); y += 44;
+        put('Date', M + 14, y + 4, 'bold 23px ' + F, GREEN); put('Details', 250, y + 4, 'bold 23px ' + F, GREEN); put(st.only ? '' : 'Money in', 840, y + 4, 'bold 23px ' + F, GREEN, 'right'); put(st.only ? 'Paid' : 'Money out', 1010, y + 4, 'bold 23px ' + F, GREEN, 'right'); put(st.only ? 'Total so far' : 'Balance', W - M - 14, y + 4, 'bold 23px ' + F, GREEN, 'right'); y += 44;
       };
       hdrCb = thead; thead();
-      need(60); put('Opening balance', 250, y + 6, 'italic 24px ' + F, MUT); put(money(st.opening), W - M - 14, y + 6, 'bold 24px ' + F, INK, 'right'); y += 50;
+      if (!st.only) { need(60); put('Opening balance', 250, y + 6, 'italic 24px ' + F, MUT); put(money(st.opening), W - M - 14, y + 6, 'bold 24px ' + F, INK, 'right'); y += 50; }
       st.rows.forEach(r => {
         x.font = '25px ' + F; const t1 = wrap(r.title, 560, 2); x.font = '21px ' + F; const t2 = wrap(r.sub, 560, 2), h = 20 + t1.length * 32 + t2.length * 27 + 12;
         need(h);
@@ -917,19 +923,19 @@
       if (!st.rows.length) { need(50); put('No entries in this period.', 250, y + 6, 'italic 25px ' + F, MUT); y += 50; }
       need(120);
       x.fillStyle = '#012313'; x.fillRect(M, y - 6, W - M * 2, 4); y += 40;
-      put('Closing balance (fund)', M + 14, y, 'bold 30px ' + F, INK); put(money(st.closing), W - M - 14, y, 'bold 34px ' + F, GREEN, 'right'); y += 44;
+      put(st.only ? 'Total spent' : 'Closing balance (fund)', M + 14, y, 'bold 30px ' + F, INK); put(money(st.only ? st.total : st.closing), W - M - 14, y, 'bold 34px ' + F, GREEN, 'right'); y += 44;
       put('Amounts paid from the owner\'s own pocket are listed but do not reduce the fund balance.', M + 14, y, 'italic 21px ' + F, MUT);
       // ---- footers
-      pages.forEach((p, i) => { const k = p.getContext('2d'); k.fillStyle = MUT; k.font = '21px ' + F; k.textAlign = 'left'; k.fillText((s.name || '') + ' · Investment & Expense Statement', M, H - 50); k.textAlign = 'right'; k.fillText('Page ' + (i + 1) + ' of ' + pages.length, W - M, H - 50); });
+      pages.forEach((p, i) => { const k = p.getContext('2d'); k.fillStyle = MUT; k.font = '21px ' + F; k.textAlign = 'left'; k.fillText((s.name || '') + ' · ' + (st.only ? st.headName + ' Statement' : 'Investment & Expense Statement'), M, H - 50); k.textAlign = 'right'; k.fillText('Page ' + (i + 1) + ' of ' + pages.length, W - M, H - 50); });
       return pages;
     });
   }
   const b64ToBytes = b => { const bin = atob(b), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
   const bytesToB64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
-  async function statementPdf(from, to) {
-    const st = D.fundStatement(from, to), pages = await statementPages(st);
+  async function statementPdf(from, to, headId) {
+    const st = headId ? headStatement(from, to, headId) : D.fundStatement(from, to), pages = await statementPages(st);
     const jp = pages.map(p => ({ w: p.width, h: p.height, jpeg: b64ToBytes(p.toDataURL('image/jpeg', 0.92).split(',')[1]) }));
-    return { bytes: window.makePdf(jp, 'Statement ' + from + ' to ' + to), pages: pages.length, name: 'ECOLaver-Statement-' + from + '-to-' + to + '.pdf' };
+    return { bytes: window.makePdf(jp, 'Statement ' + from + ' to ' + to), pages: pages.length, name: 'ECOLaver-' + (headId ? st.headName.replace(/[^A-Za-z0-9]+/g, '-') + '-' : 'Statement-') + from + '-to-' + to + '.pdf' };
   }
   const DL_DIR = 'ECOLaver Business Management System/Downloads';
   async function saveBinaryToFolder(name, b64) {
@@ -1538,6 +1544,22 @@
       try { const d = { investorId: V('#dp-inv'), amount: V('#dp-amt'), date: V('#dp-date'), method: V('#dp-m'), note: V('#dp-note') }; if (el.dataset.id) D.updateDeposit(el.dataset.id, d); else D.addDeposit(d); closeSheet(); toast('Saved'); draw(true); } catch (e) { toast(e.message, 1); }
     },
     async depDel(el) { const ok = await confirmSheet({ title: 'Delete this entry?', text: 'Total invested will go down by this amount.', ok: 'Delete', danger: true }); if (!ok) return; D.deleteDeposit(el.dataset.id); toast('Deleted'); draw(true); },
+    headPdfAsk(el) {
+      const h = D.find('heads', el.dataset.id), l = D.state.spends.filter(x => x.headId === h.id).map(x => x.date).sort();
+      openSheet('<h2>' + esc(h.name) + ' - PDF</h2><p class="mut" style="margin-bottom:10px">Choose the dates. Leave as is for everything.</p><div class="two">' + fld('hp-from', 'From', l[0] || D.today(), 'date') + fld('hp-to', 'To', D.today(), 'date') + '</div>' +
+        '<div class="btns"><button class="btn primary" data-act="headPdf" data-m="save" data-id="' + h.id + '">Download PDF</button><button class="btn gold" data-act="headPdf" data-m="share" data-id="' + h.id + '">Share PDF</button></div>');
+    },
+    async headPdf(el) {
+      const f = V('#hp-from'), t = V('#hp-to'); if (!f || !t || f > t) { toast('Check the dates', 1); return; }
+      if (S.busy) return; S.busy = 1; toast('Making PDF...');
+      try {
+        const r = await statementPdf(f, t, el.dataset.id), b64 = bytesToB64(r.bytes); closeSheet();
+        if (el.dataset.m === 'share') await shareFile(r.name, b64, false, 'Statement');
+        else if (NATIVE) { const p = await saveBinaryToFolder(r.name, b64); if (p) toast('Saved: ' + p); else if (p === '') await shareFile(r.name, b64, false, 'Statement'); }
+        else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([r.bytes], { type: 'application/pdf' })); a.download = r.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000); toast('PDF ready'); }
+      } catch (e) { toast('Could not make PDF: ' + e.message, 1); }
+      S.busy = 0;
+    },
     headNew() { headSheet(); }, headEdit(el) { headSheet(el.dataset.id); },
     hdSave(el) { try { if (el.dataset.id) D.renameHead(el.dataset.id, V('#hd-name')); else D.addHead(V('#hd-name')); closeSheet(); toast('Saved'); draw(true); } catch (e) { toast(e.message, 1); } },
     async headDel(el) { const ok = await confirmSheet({ title: 'Delete this head?', text: 'It has no entries, so nothing is lost.', ok: 'Delete', danger: true }); if (!ok) return; try { D.removeHead(el.dataset.id); toast('Deleted'); if (!goBack()) draw(true); } catch (e) { toast(e.message, 1); } },
