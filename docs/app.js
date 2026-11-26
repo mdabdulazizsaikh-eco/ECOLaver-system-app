@@ -853,8 +853,8 @@
       put('Prepared on ' + fmtDate(D.today()), W - M, y + 50, '24px ' + F, MUT, 'right');
       y += 96;
       // ---- summary
-      const sumRows = st.only ? [['Total spent on ' + st.headName, money(st.total), 3], ['Paid from investors\' fund', money(st.fund), 4], ['Paid from own pocket', money(st.pocket), 4], ['Number of payments', String(st.rows.length), 4]] : [['Opening balance (fund)', money(st.opening), 0], ['Money invested in this period', '+ ' + money(st.invested), 1], ['Spent from fund', '- ' + money(st.fundSpent), 2], ['Closing balance (fund)', money(st.closing), 3],
-        ['Total spent in this period', money(st.spent), 4], ['Of which paid from own pocket', money(st.pocketSpent), 4], ['Total invested till ' + fmtDate(st.to), money(st.totalInvestedToDate), 4]];
+      const sumRows = st.only ? [['Total spent on ' + st.headName, money(st.total), 3], ['Number of payments', String(st.rows.length), 4]] : [['Opening balance (fund)', money(st.opening), 0], ['Money invested in this period', '+ ' + money(st.invested), 1], ['Less: expenses paid', '- ' + money(st.fundSpent), 2], ['Closing balance (fund)', money(st.closing), 3],
+        ['Total spent in this period', money(st.spent), 4], ['Total invested till ' + fmtDate(st.to), money(st.totalInvestedToDate), 4]];
       need(sumRows.length * 48 + 40);
       x.fillStyle = '#f2f7f4'; x.beginPath(); x.roundRect ? x.roundRect(M, y - 12, W - M * 2, sumRows.length * 48 + 24, 18) : x.rect(M, y - 12, W - M * 2, sumRows.length * 48 + 24); x.fill();
       sumRows.forEach((r, i) => {
@@ -883,7 +883,6 @@
           x.fillStyle = '#e4f2ea'; x.fillRect(M, y - 30, W - M * 2, 50);
           put(fit(h.name, 700), M + 14, y + 4, 'bold 27px ' + F, GREEN); put(money(h.total), W - M - 14, y + 4, 'bold 27px ' + F, GREEN, 'right'); y += 46;
           h.works.forEach(w => { need(44); put(fit(w.work, 640), M + 40, y + 6, '25px ' + F, INK); put(pl(w.count, 'payment'), 860, y + 6, '22px ' + F, MUT, 'right'); put(money(w.total), W - M - 14, y + 6, '25px ' + F, INK, 'right'); y += 42; });
-          if (h.pocket > 0) { need(40); put('Paid from own pocket: ' + money(h.pocket) + '   ·   From fund: ' + money(h.fund), M + 40, y + 4, 'italic 22px ' + F, MUT); y += 40; }
           y += 16;
         });
         y += 4;
@@ -916,7 +915,7 @@
         t1.forEach((l, i) => put(l, 250, y + 6 + i * 32, '25px ' + F, INK));
         t2.forEach((l, i) => put(l, 250, y + 6 + t1.length * 32 + i * 27 - 4, '21px ' + F, MUT));
         if (r.credit) put(money(r.credit), 840, y + 6, '25px ' + F, '#0a6b3a', 'right');
-        if (r.debit) put(money(r.debit), 1010, y + 6, '25px ' + F, r.pocket ? MUT : '#b3261e', 'right');
+        if (r.debit) put(money(r.debit), 1010, y + 6, '25px ' + F, '#b3261e', 'right');
         put(money(r.balance), W - M - 14, y + 6, 'bold 25px ' + F, INK, 'right');
         x.fillStyle = '#edf2ee'; x.fillRect(M, y + h - 26, W - M * 2, 1.5); y += h;
       });
@@ -924,7 +923,7 @@
       need(120);
       x.fillStyle = '#012313'; x.fillRect(M, y - 6, W - M * 2, 4); y += 40;
       put(st.only ? 'Total spent' : 'Closing balance (fund)', M + 14, y, 'bold 30px ' + F, INK); put(money(st.only ? st.total : st.closing), W - M - 14, y, 'bold 34px ' + F, GREEN, 'right'); y += 44;
-      put('Amounts paid from the owner\'s own pocket are listed but do not reduce the fund balance.', M + 14, y, 'italic 21px ' + F, MUT);
+
       // ---- footers
       pages.forEach((p, i) => { const k = p.getContext('2d'); k.fillStyle = MUT; k.font = '21px ' + F; k.textAlign = 'left'; k.fillText((s.name || '') + ' · ' + (st.only ? st.headName + ' Statement' : 'Investment & Expense Statement'), M, H - 50); k.textAlign = 'right'; k.fillText('Page ' + (i + 1) + ' of ' + pages.length, W - M, H - 50); });
       return pages;

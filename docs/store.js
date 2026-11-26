@@ -882,7 +882,7 @@
       rows.push({ date: x.date, ts: x.ts, kind: 'in', title: 'Investment: ' + (iv ? iv.name : '?'), sub: x.method + (x.note ? ' · ' + x.note : ''), credit: x.amount, debit: 0, pocket: false });
     });
     sp.filter(x => inRange(x.date, from, to)).forEach(x => {
-      rows.push({ date: x.date, ts: x.ts, kind: 'out', title: hn(x.headId) + ': ' + x.work, sub: (x.who ? x.who + ' · ' : '') + x.method + (x.source === 'pocket' ? ' · Own pocket' : '') + (x.note ? ' · ' + x.note : ''), credit: 0, debit: x.amount, pocket: x.source === 'pocket', headId: x.headId });
+      rows.push({ date: x.date, ts: x.ts, kind: 'out', title: hn(x.headId) + ': ' + x.work, sub: (x.who ? x.who + ' · ' : '') + x.method + (x.note ? ' · ' + x.note : ''), credit: 0, debit: x.amount, pocket: x.source === 'pocket', headId: x.headId });
     });
     rows.sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts);
     let bal = opening;
