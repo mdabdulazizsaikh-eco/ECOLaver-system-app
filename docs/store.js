@@ -50,6 +50,8 @@
         upi: '', logo: '', invoicePrefix: 'EL-', footer: 'Thank you for choosing nature!', lowDefault: 5, memberPct: 5, cardFee: 599
       },
       items: [], customers: [], vendors: [], purchases: [], batches: [], invoices: [], orders: [], vorders: [], adjustments: [],
+      investors: [], deposits: [], spends: [],
+      heads: [{ id: 'h_shop', name: 'Shop construction', extra: false }, { id: 'h_deco', name: 'Shop decoration', extra: false }, { id: 'h_extra', name: 'Extra expenses', extra: true }],
       counters: { invoice: 1, purchase: 1, order: 1, vorder: 1 }
     };
   }
@@ -784,10 +786,132 @@
     adopt(d);
     save();
   }
+
+  /* ================= INVESTORS & SHOP EXPENSES =================
+     A separate notebook (does not touch sales, stock or profit).
+     investors -> deposits (money put in); heads -> spends (money spent).
+     A spend is paid from the investors' fund or from the owner's own pocket. */
+  const PAYSRC = ['fund', 'pocket'];
+  const inRange = (d, a, b) => d >= a && d <= b;
+  const sumAmt = l => r2(l.reduce((t, x) => t + x.amount, 0));
+  function addInvestor(d) {
+    const name = clean(d.name);
+    if (!name) throw new Error('Please enter the investor name');
+    if (state.investors.some(i => nk(i.name) === nk(name))) throw new Error('This investor already exists');
+    const inv = { id: uid(), name, phone: clean(d.phone), note: clean(d.note), ts: Date.now() };
+    state.investors.push(inv); save(); return inv;
+  }
+  function updateInvestor(id, d) {
+    const inv = find('investors', id); if (!inv) throw new Error('Not found');
+    const name = clean(d.name);
+    if (!name) throw new Error('Please enter the investor name');
+    if (state.investors.some(i => i.id !== id && nk(i.name) === nk(name))) throw new Error('This name already exists');
+    inv.name = name; inv.phone = clean(d.phone); inv.note = clean(d.note); save(); return inv;
+  }
+  function removeInvestor(id) {
+    state.deposits = state.deposits.filter(x => x.investorId !== id);
+    state.investors = state.investors.filter(i => i.id !== id); save();
+  }
+  function depositCheck(d) {
+    const amount = r2(+d.amount);
+    if (!(amount > 0)) throw new Error('Please enter the amount');
+    if (!find('investors', d.investorId)) throw new Error('Choose the investor');
+    return { investorId: d.investorId, amount, date: d.date || today(), method: clean(d.method) || 'Cash', note: clean(d.note) };
+  }
+  function addDeposit(d) { const x = Object.assign({ id: uid(), ts: Date.now() }, depositCheck(d)); state.deposits.push(x); save(); return x; }
+  function updateDeposit(id, d) { const x = find('deposits', id); if (!x) throw new Error('Not found'); Object.assign(x, depositCheck(d)); save(); return x; }
+  function deleteDeposit(id) { state.deposits = state.deposits.filter(x => x.id !== id); save(); }
+  function addHead(name) {
+    name = clean(name);
+    if (!name) throw new Error('Please enter the name');
+    if (state.heads.some(h => nk(h.name) === nk(name))) throw new Error('This head already exists');
+    const h = { id: uid(), name, extra: false }; state.heads.push(h); save(); return h;
+  }
+  function renameHead(id, name) {
+    const h = find('heads', id); name = clean(name);
+    if (!h) throw new Error('Not found');
+    if (!name) throw new Error('Please enter the name');
+    if (state.heads.some(x => x.id !== id && nk(x.name) === nk(name))) throw new Error('This name already exists');
+    h.name = name; save(); return h;
+  }
+  function removeHead(id) {
+    if (state.spends.some(x => x.headId === id)) throw new Error('This head has expenses. Delete them first.');
+    state.heads = state.heads.filter(h => h.id !== id); save();
+  }
+  function spendCheck(d) {
+    const amount = r2(+d.amount);
+    if (!(amount > 0)) throw new Error('Please enter the amount');
+    if (!find('heads', d.headId)) throw new Error('Choose the head');
+    const work = clean(d.work);
+    if (!work) throw new Error('Please enter what the work or expense is');
+    return { headId: d.headId, work, who: clean(d.who), amount, date: d.date || today(), method: clean(d.method) || 'Cash',
+      source: PAYSRC.includes(d.source) ? d.source : 'fund', agreed: Math.max(r2(+d.agreed || 0), 0), note: clean(d.note) };
+  }
+  function addSpend(d) { const x = Object.assign({ id: uid(), ts: Date.now() }, spendCheck(d)); state.spends.push(x); save(); return x; }
+  function updateSpend(id, d) { const x = find('spends', id); if (!x) throw new Error('Not found'); Object.assign(x, spendCheck(d)); save(); return x; }
+  function deleteSpend(id) { state.spends = state.spends.filter(x => x.id !== id); save(); }
+
+  /* money position up to a date (default: everything) */
+  function fundSummary(upto) {
+    upto = upto || '9999-12-31';
+    const dep = state.deposits.filter(x => x.date <= upto), sp = state.spends.filter(x => x.date <= upto);
+    const invested = sumAmt(dep), fundSpent = sumAmt(sp.filter(x => x.source === 'fund')), pocketSpent = sumAmt(sp.filter(x => x.source === 'pocket'));
+    return { invested, fundSpent, pocketSpent, spent: r2(fundSpent + pocketSpent), balance: r2(invested - fundSpent) };
+  }
+  /* who was paid how much for which work (all time up to a date); agreed = latest agreed amount typed */
+  function specialists(upto) {
+    upto = upto || '9999-12-31';
+    const m = {};
+    state.spends.filter(x => x.date <= upto && x.who).sort((a, b) => a.ts - b.ts).forEach(x => {
+      const k = x.headId + '|' + nk(x.who) + '|' + nk(x.work);
+      const o = m[k] || (m[k] = { headId: x.headId, who: x.who, work: x.work, paid: 0, agreed: 0, count: 0 });
+      o.paid = r2(o.paid + x.amount); o.count++;
+      if (x.agreed > 0) o.agreed = x.agreed;
+    });
+    return Object.keys(m).map(k => { const o = m[k]; o.due = o.agreed > 0 ? r2(o.agreed - o.paid) : null; return o; });
+  }
+  /* bank-statement style report for a date range */
+  function fundStatement(from, to) {
+    from = from || '0000-01-01'; to = to || '9999-12-31';
+    const heads = state.heads, hn = id => (heads.find(h => h.id === id) || { name: '?' }).name;
+    const dep = state.deposits, sp = state.spends;
+    const opening = r2(sumAmt(dep.filter(x => x.date < from)) - sumAmt(sp.filter(x => x.date < from && x.source === 'fund')));
+    const rows = [];
+    dep.filter(x => inRange(x.date, from, to)).forEach(x => {
+      const iv = find('investors', x.investorId);
+      rows.push({ date: x.date, ts: x.ts, kind: 'in', title: 'Investment: ' + (iv ? iv.name : '?'), sub: x.method + (x.note ? ' · ' + x.note : ''), credit: x.amount, debit: 0, pocket: false });
+    });
+    sp.filter(x => inRange(x.date, from, to)).forEach(x => {
+      rows.push({ date: x.date, ts: x.ts, kind: 'out', title: hn(x.headId) + ': ' + x.work, sub: (x.who ? x.who + ' · ' : '') + x.method + (x.source === 'pocket' ? ' · Own pocket' : '') + (x.note ? ' · ' + x.note : ''), credit: 0, debit: x.amount, pocket: x.source === 'pocket' });
+    });
+    rows.sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts);
+    let bal = opening;
+    rows.forEach(r => { if (r.kind === 'in') bal = r2(bal + r.credit); else if (!r.pocket) bal = r2(bal - r.debit); r.balance = bal; });
+    const sIn = sp.filter(x => inRange(x.date, from, to)), dIn = dep.filter(x => inRange(x.date, from, to));
+    const cum = fundSummary(to), totalCum = cum.invested;
+    const investors = state.investors.map(i => {
+      const total = sumAmt(dep.filter(x => x.investorId === i.id && x.date <= to));
+      return { id: i.id, name: i.name, phone: i.phone, inPeriod: sumAmt(dIn.filter(x => x.investorId === i.id)), total, pct: totalCum > 0 ? Math.round(total / totalCum * 1000) / 10 : 0 };
+    }).filter(i => i.total > 0 || i.inPeriod > 0).sort((a, b) => b.total - a.total);
+    const headRows = heads.map(h => {
+      const l = sIn.filter(x => x.headId === h.id), w = {};
+      l.forEach(x => { const k = nk(x.work); const o = w[k] || (w[k] = { work: x.work, total: 0, count: 0 }); o.total = r2(o.total + x.amount); o.count++; });
+      return { id: h.id, name: h.name, total: sumAmt(l), fund: sumAmt(l.filter(x => x.source === 'fund')), pocket: sumAmt(l.filter(x => x.source === 'pocket')), count: l.length, works: Object.keys(w).map(k => w[k]).sort((a, b) => b.total - a.total) };
+    }).filter(h => h.count > 0);
+    const spec = specialists(to).filter(x => x.agreed > 0);
+    return {
+      from, to, opening, closing: bal, rows, investors, heads: headRows, specialists: spec.map(x => Object.assign({ headName: hn(x.headId) }, x)),
+      invested: sumAmt(dIn), spent: sumAmt(sIn), fundSpent: sumAmt(sIn.filter(x => x.source === 'fund')), pocketSpent: sumAmt(sIn.filter(x => x.source === 'pocket')),
+      totalInvestedToDate: totalCum, balanceToDate: cum.balance
+    };
+  }
+
   function resetAll(keepSettings) {
-    const s = state.settings;
+    const s = state.settings, keep = { investors: state.investors, deposits: state.deposits, spends: state.spends, heads: state.heads };
     state = fresh();
     if (keepSettings !== false) state.settings = Object.assign(state.settings, s);
+    Object.assign(state, keep); // the investor notebook is never wiped by "delete business data"
+    if (keepSettings === false) { state.investors = []; state.deposits = []; state.spends = []; state.heads = fresh().heads; }
     save();
   }
   function saveSettings(s) { Object.assign(state.settings, s); save(); }
@@ -796,7 +920,7 @@
     digits, issueCard, revokeCard, memberPct, UNITS, MARKET, load, save, uid, today, r2, r3, r4, sum, conv, compat, money, qtyFmt, localDate, nk, clean,
     get state() { return state; }, get lastError() { return lastError; }, get notice() { return notice; },
     item, find, rawItems, findRaw, places, addPerson, updatePerson, removePerson, payment, deleteLedgerEntry,
-    updateItem, addItem, cashFlow, removeItem, stockAdjust, purchase, deletePurchase, packGroups, rawsWithPacks, packetCost, packPlan, pack, undoBatch, suggest,
+    updateItem, addItem, cashFlow, addInvestor, updateInvestor, removeInvestor, addDeposit, updateDeposit, deleteDeposit, addHead, renameHead, removeHead, addSpend, updateSpend, deleteSpend, fundSummary, fundStatement, specialists, removeItem, stockAdjust, purchase, deletePurchase, packGroups, rawsWithPacks, packetCost, packPlan, pack, undoBatch, suggest,
     stockIssues, vendorOrder, cancelVendorOrder, deleteVendorOrder, invoice, voidInvoice, deleteInvoice, order, cancelOrder, deleteOrder, movements, totals, lastDays, report,
     exportJSON, importJSON, resetAll, saveSettings, hasSaved, restoreText
   };

@@ -223,7 +223,7 @@
   }
 
   /* ---------- navigation (own stack, so Back always goes one step back) ---------- */
-  const TABOF = { home: 'home', stock: 'stock', item: 'stock', bill: 'bill', invoice: 'bill', people: 'people', person: 'people', buyMenu: 'stock', buy: 'stock', purchases: 'stock', reports: 'more', repDetail: 'more' };
+  const TABOF = { home: 'home', stock: 'stock', item: 'stock', bill: 'bill', invoice: 'bill', people: 'people', person: 'people', buyMenu: 'stock', buy: 'stock', purchases: 'stock', reports: 'more', repDetail: 'more', fund: 'more', investor: 'more', head: 'more', stmt: 'more' };
   function go(n, p, replace) {
     if (!replace) S.stack.push(cur);
     cur = { n, p: p || {} };
@@ -737,8 +737,246 @@
 
   /* ---------- MORE / REPORTS / SETTINGS ---------- */
   SCREENS.more = () => top('More', 'Everything else') + '<div class="page"><div class="card">' +
-    [['pack', 'blue', 'Pack Products', 'Turn raw material into packets', 'pack'], ['clip', 'gold', 'Orders', 'Customer and vendor orders, pre-orders with advance', 'orders'], ['users', 'gold', 'Family Cards', 'Members and member discount', 'cards'], ['receipt', '', 'All bills', 'Search old bills', 'invoices'], ['clip', '', 'Packing history', 'What you packed before', 'packings'], ['chart', '', 'Reports', 'Sales, profit, cash', 'reports'], ['gear', '', 'Settings & backup', 'Logo, address, backup', 'settings']]
+    [['pack', 'blue', 'Pack Products', 'Turn raw material into packets', 'pack'], ['wallet', 'green', 'Investors & Expenses', 'Investors, shop building costs, PDF statement', 'fund'], ['clip', 'gold', 'Orders', 'Customer and vendor orders, pre-orders with advance', 'orders'], ['users', 'gold', 'Family Cards', 'Members and member discount', 'cards'], ['receipt', '', 'All bills', 'Search old bills', 'invoices'], ['clip', '', 'Packing history', 'What you packed before', 'packings'], ['chart', '', 'Reports', 'Sales, profit, cash', 'reports'], ['gear', '', 'Settings & backup', 'Logo, address, backup', 'settings']]
       .map(a => '<div class="row" data-act="goto" data-n="' + a[4] + '"><div class="ico ' + a[1] + '">' + ic(a[0]) + '</div><div class="main"><div class="t">' + a[2] + '</div><div class="s">' + a[3] + '</div></div></div>').join('') + '</div></div>';
+
+  /* ---------- INVESTORS & SHOP EXPENSES ---------- */
+  const METHODS = ['Cash', 'UPI', 'Bank'];
+  const WORK_HINTS = ['Mason work', 'Electric work', 'Plumbing', 'Carpentry', 'Painting', 'Flooring', 'Shutter / door', 'Furniture', 'Lighting', 'Signboard', 'Food', 'Local staff', 'Vehicle hire', 'Other'];
+  const fld = (id, label, val, type, ph, extra) => '<div class="field"><label>' + label + '</label><input id="' + id + '" ' + (type === 'number' ? 'type="number" inputmode="decimal" step="any" ' : type === 'date' ? 'type="date" ' : '') + 'value="' + esc(val == null ? '' : val) + '" placeholder="' + esc(ph || '') + '" ' + (extra || '') + '></div>';
+  const sel = (id, label, opts, val) => '<div class="field"><label>' + label + '</label><select id="' + id + '">' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select></div>';
+  const invTotal = id => D.r2(D.sum(D.state.deposits.filter(x => x.investorId === id).map(x => x.amount)));
+  const headTotal = id => D.r2(D.sum(D.state.spends.filter(x => x.headId === id).map(x => x.amount)));
+  const initial = n => esc(String(n || '?').trim().slice(0, 1).toUpperCase());
+
+  SCREENS.fund = () => {
+    const t = D.fundSummary(), st = D.state;
+    const invs = st.investors.map(i => ({ i, tot: invTotal(i.id) })).sort((a, b) => b.tot - a.tot);
+    return top('Investors & Expenses', 'Shop building and setting up costs') + '<div class="page stagger">' +
+      '<div class="hero"><small>Total invested</small><div class="big">' + money(t.invested) + '</div><div class="sub"><span>Spent ' + money(t.fundSpent) + '</span><span>In hand ' + money(t.balance) + '</span></div></div>' +
+      '<div class="grid2"><div class="stat ' + (t.balance < 0 ? 'red' : 'green') + '"><small>Money in hand</small><b>' + money(t.balance) + '</b><small style="margin-top:3px">Invested − spent from fund</small></div><div class="stat gold"><small>Paid from own pocket</small><b>' + money(t.pocketSpent) + '</b><small style="margin-top:3px">Not taken from fund</small></div></div>' +
+      '<div class="card"><h3>Investors <small>' + pl(invs.length, 'person', 'people') + '</small></h3>' +
+      (invs.map(o => '<div class="row" data-act="goto" data-n="investor" data-id="' + o.i.id + '"><div class="ico gold">' + initial(o.i.name) + '</div><div class="main"><div class="t">' + esc(o.i.name) + '</div><div class="s">' + (t.invested > 0 ? (Math.round(o.tot / t.invested * 1000) / 10) + '% of total' : 'No money yet') + (o.i.phone ? ' · ' + esc(o.i.phone) : '') + '</div></div><div class="end"><b>' + money(o.tot) + '</b></div></div>').join('') || empty('users', 'No investors yet', 'Tap "Add investor" below.')) +
+      '<div class="btns" style="margin-top:12px"><button class="btn gold" data-act="invNew">' + ic('plus') + 'Add investor</button><button class="btn" data-act="depNew">' + ic('wallet') + 'Add money</button></div></div>' +
+      '<div class="card"><h3>Where the money went <small>Tap a head for details</small></h3>' +
+      st.heads.map(h => { const n = st.spends.filter(x => x.headId === h.id).length; return '<div class="row" data-act="goto" data-n="head" data-id="' + h.id + '"><div class="ico ' + (h.extra ? 'blue' : 'green') + '">' + ic(h.extra ? 'cart' : 'box') + '</div><div class="main"><div class="t">' + esc(h.name) + '</div><div class="s">' + pl(n, 'entry', 'entries') + '</div></div><div class="end"><b>' + money(headTotal(h.id)) + '</b></div></div>'; }).join('') +
+      '<div class="btns" style="margin-top:12px"><button class="btn" data-act="headNew">' + ic('plus') + 'Add a head</button><button class="btn gold" data-act="spendNew">' + ic('plus') + 'Add expense</button></div></div>' +
+      '<button class="btn primary block" data-act="goto" data-n="stmt">' + ic('clip') + 'Statement (PDF)</button></div>';
+  };
+
+  SCREENS.investor = p => {
+    const i = D.find('investors', p.id); if (!i) return top('Investor', '') + '<div class="page">' + empty('users', 'Not found') + '</div>';
+    const l = D.state.deposits.filter(x => x.investorId === i.id).sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts), t = D.fundSummary(), tot = invTotal(i.id);
+    return top(i.name, i.phone || 'Investor', { act: 'invEdit', label: 'Edit', attr: 'data-id="' + i.id + '"' }) + '<div class="page">' +
+      '<div class="hero"><small>Invested by ' + esc(i.name) + '</small><div class="big">' + money(tot) + '</div><div class="sub"><span>' + (t.invested > 0 ? (Math.round(tot / t.invested * 1000) / 10) : 0) + '% of ' + money(t.invested) + '</span></div></div>' +
+      (i.note ? '<div class="note">' + esc(i.note) + '</div>' : '') +
+      '<button class="btn gold block" style="margin-bottom:12px" data-act="depNew" data-id="' + i.id + '">' + ic('plus') + 'Add money from ' + esc(i.name) + '</button>' +
+      '<div class="card"><h3>Investment history <small>Tap to change</small></h3>' + (l.map(x => '<div class="row" data-act="depEdit" data-id="' + x.id + '"><div class="ico green">' + ic('wallet') + '</div><div class="main"><div class="t">' + fmtDate(x.date) + '</div><div class="s">' + esc(x.method) + (x.note ? ' · ' + esc(x.note) : '') + '</div></div><div class="end"><b class="pos">' + money(x.amount) + '</b></div></div>').join('') || empty('wallet', 'No money added yet')) + '</div></div>';
+  };
+
+  SCREENS.head = p => {
+    const h = D.find('heads', p.id); if (!h) return top('Head', '') + '<div class="page">' + empty('box', 'Not found') + '</div>';
+    const l = D.state.spends.filter(x => x.headId === h.id).sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
+    const works = {}; l.forEach(x => { const k = x.work.toLowerCase(); const o = works[k] || (works[k] = { work: x.work, total: 0, n: 0 }); o.total = D.r2(o.total + x.amount); o.n++; });
+    const wl = Object.keys(works).map(k => works[k]).sort((a, b) => b.total - a.total), sp = D.specialists().filter(x => x.headId === h.id);
+    const fundT = D.r2(D.sum(l.filter(x => x.source === 'fund').map(x => x.amount))), pocT = D.r2(D.sum(l.filter(x => x.source === 'pocket').map(x => x.amount)));
+    return top(h.name, pl(l.length, 'entry', 'entries'), { act: 'spendNew', label: '+ Add', attr: 'data-id="' + h.id + '"' }) + '<div class="page">' +
+      '<div class="hero"><small>Total spent on ' + esc(h.name) + '</small><div class="big">' + money(headTotal(h.id)) + '</div><div class="sub"><span>From fund ' + money(fundT) + '</span>' + (pocT ? '<span>Own pocket ' + money(pocT) + '</span>' : '') + '</div></div>' +
+      (wl.length ? '<div class="card"><h3>Work-wise total</h3>' + wl.map(w => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(w.work) + '</div><div class="s">' + pl(w.n, 'payment') + '</div></div><div class="end"><b>' + money(w.total) + '</b></div></div>').join('') + '</div>' : '') +
+      (sp.length ? '<div class="card"><h3>Who was paid</h3>' + sp.sort((a, b) => b.paid - a.paid).map(x => '<div class="row" style="cursor:default"><div class="main"><div class="t">' + esc(x.who) + '</div><div class="s">' + esc(x.work) + (x.agreed > 0 ? ' · Agreed ' + money(x.agreed) : '') + '</div></div><div class="end"><b>' + money(x.paid) + '</b>' + (x.due !== null ? (x.due > 0.005 ? '<span class="pill warn">Due ' + money(x.due) + '</span>' : '<span class="pill">Fully paid</span>') : '') + '</div></div>').join('') + '</div>' : '') +
+      '<div class="card"><h3>All entries <small>Tap to change</small></h3>' + (l.map(x => '<div class="row ordrow" data-act="spendEdit" data-id="' + x.id + '"><div class="ico ' + (x.source === 'pocket' ? 'gold' : 'green') + '">' + ic('receipt') + '</div><div class="main"><div class="t">' + esc(x.work) + '</div><div class="s">' + (x.who ? esc(x.who) + ' · ' : '') + fmtDate(x.date) + ' · ' + esc(x.method) + '</div></div><div class="end"><b>' + money(x.amount) + '</b>' + (x.source === 'pocket' ? '<span class="pill warn">Own pocket</span>' : '') + '</div></div>').join('') || empty('receipt', 'No expenses yet', 'Tap "+ Add" to write the first one.')) + '</div>' +
+      '<div class="btns"><button class="btn ghost" data-act="headEdit" data-id="' + h.id + '">Rename this head</button>' + (l.length ? '' : '<button class="btn danger" data-act="headDel" data-id="' + h.id + '">Delete head</button>') + '</div></div>';
+  };
+
+  const monthStart = (d) => d.slice(0, 8) + '01';
+  const firstDate = () => { const a = D.state.deposits.map(x => x.date).concat(D.state.spends.map(x => x.date)).sort(); return a[0] || D.today(); };
+  SCREENS.stmt = () => {
+    if (!S.st) S.st = { from: firstDate(), to: D.today() };
+    const st = D.fundStatement(S.st.from, S.st.to), badRange = S.st.from > S.st.to;
+    const kv = (a, b, cls) => '<div class="kv"><span>' + a + '</span><b class="' + (cls || '') + '">' + b + '</b></div>';
+    return top('Statement', 'Download a PDF for any dates') + '<div class="page">' +
+      '<div class="card"><h3>Choose the dates</h3><div class="two">' + fld('st-from', 'From', S.st.from, 'date') + fld('st-to', 'To', S.st.to, 'date') + '</div>' +
+      '<div class="seg" style="margin:4px 0 12px"><button data-act="stmtQuick" data-v="all">All time</button><button data-act="stmtQuick" data-v="month">This month</button><button data-act="stmtQuick" data-v="last">Last month</button></div>' +
+      '<button class="btn block" data-act="stmtShow">Show this period</button></div>' +
+      (badRange ? '<div class="note bad">The "From" date is after the "To" date.</div>' : '<div class="card"><h3>' + fmtDate(S.st.from) + ' to ' + fmtDate(S.st.to) + '</h3>' +
+        kv('Opening balance (fund)', money(st.opening)) + kv('Money invested in this period', '+ ' + money(st.invested), 'pos') + kv('Spent from fund', '− ' + money(st.fundSpent), 'neg') + kv('<b>Closing balance (fund)</b>', '<b>' + money(st.closing) + '</b>') +
+        '<hr style="border:none;border-top:1px solid #e3e9e5;margin:10px 0">' + kv('Total spent in this period', money(st.spent)) + kv('Of which paid from own pocket', money(st.pocketSpent)) + kv('Total invested till ' + fmtDate(S.st.to), money(st.totalInvestedToDate)) +
+        '<p class="mut" style="font-size:13px;margin-top:8px">' + pl(st.rows.length, 'entry', 'entries') + ' will be listed in the PDF.</p></div>') +
+      '<div class="btns"><button class="btn primary" data-act="stmtPdf" data-m="save">' + ic('clip') + 'Download PDF</button><button class="btn gold" data-act="stmtPdf" data-m="share">' + ic('share') + 'Share PDF</button></div>' +
+      (NATIVE ? '<p class="mut" style="font-size:13px;margin-top:10px">PDF is saved in: ECOLaver Business Management System / Downloads</p>' : '') + '</div>';
+  };
+
+  /* ----- the statement as pictures, then a PDF ----- */
+  function statementPages(st) {
+    const s = D.state.settings, W = 1240, H = 1754, M = 70, F = 'system-ui, -apple-system, Roboto, Arial, sans-serif', GREEN = '#0a6b3a', INK = '#16261d', MUT = '#5d6b63';
+    const pages = []; let c, x, y, hdrCb = null;
+    const fit = (t, mw) => { t = String(t); if (x.measureText(t).width <= mw) return t; while (t.length > 1 && x.measureText(t + '…').width > mw) t = t.slice(0, -1); return t + '…'; };
+    const wrap = (t, mw, maxLines) => {
+      const words = String(t).split(/\s+/), lines = []; let cur = '';
+      words.forEach(w => { const tt = cur ? cur + ' ' + w : w; if (x.measureText(tt).width <= mw || !cur) cur = tt; else { lines.push(cur); cur = w; } });
+      if (cur) lines.push(cur);
+      if (maxLines && lines.length > maxLines) { lines.length = maxLines; lines[maxLines - 1] = fit(lines[maxLines - 1] + '…', mw); }
+      return lines;
+    };
+    const put = (t, px, py, font, color, align) => { x.font = font; x.fillStyle = color || INK; x.textAlign = align || 'left'; x.fillText(t, px, py); };
+    return new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = logoSrc(); }).then(logo => {
+      const newPage = first => {
+        c = document.createElement('canvas'); c.width = W; c.height = H; x = c.getContext('2d'); pages.push(c);
+        x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
+        const bh = first ? 190 : 92, g = x.createLinearGradient(0, 0, W, 0); g.addColorStop(0, '#011a0d'); g.addColorStop(1, '#0e7a42');
+        x.fillStyle = g; x.fillRect(0, 0, W, bh); x.fillStyle = '#eec32f'; x.fillRect(0, bh, W, 6);
+        const r = first ? 64 : 30, cx = M + r, cy = bh / 2;
+        x.save(); x.beginPath(); x.arc(cx, cy, r, 0, 7); x.closePath(); x.fillStyle = '#fff'; x.fill(); x.clip(); if (logo) x.drawImage(logo, cx - r, cy - r, r * 2, r * 2); x.restore();
+        const tx = M + r * 2 + 26;
+        put(fit(s.name || 'ECOLaver', 820), tx, first ? cy - 6 : cy + 11, 'bold ' + (first ? 46 : 30) + 'px ' + F, '#fff');
+        if (first) {
+          x.globalAlpha = .92;
+          if (s.address) put(fit(s.address, 820), tx, cy + 30, '24px ' + F, '#fff');
+          put(fit([s.phone ? 'Ph: ' + s.phone : '', s.email].filter(Boolean).join('   ·   '), 820), tx, cy + 62, '24px ' + F, '#fff');
+          x.globalAlpha = 1;
+        } else put('Investment & Expense Statement', W - M, cy + 10, '24px ' + F, '#fff', 'right');
+        y = bh + 56;
+        if (!first && hdrCb) hdrCb();
+      };
+      const need = h => { if (y + h > H - 110) newPage(false); };
+      const section = t => { need(90); put(t, M, y + 10, 'bold 30px ' + F, GREEN); x.fillStyle = '#eec32f'; x.fillRect(M, y + 22, 90, 4); y += 62; };
+      // ---- title
+      newPage(true);
+      put('Investment & Expense Statement', M, y + 8, 'bold 40px ' + F, INK);
+      put(fmtDate(st.from) + '  to  ' + fmtDate(st.to), M, y + 50, '27px ' + F, MUT);
+      put('Prepared on ' + fmtDate(D.today()), W - M, y + 50, '24px ' + F, MUT, 'right');
+      y += 96;
+      // ---- summary
+      const sumRows = [['Opening balance (fund)', money(st.opening), 0], ['Money invested in this period', '+ ' + money(st.invested), 1], ['Spent from fund', '- ' + money(st.fundSpent), 2], ['Closing balance (fund)', money(st.closing), 3],
+        ['Total spent in this period', money(st.spent), 4], ['Of which paid from own pocket', money(st.pocketSpent), 4], ['Total invested till ' + fmtDate(st.to), money(st.totalInvestedToDate), 4]];
+      need(sumRows.length * 48 + 40);
+      x.fillStyle = '#f2f7f4'; x.beginPath(); x.roundRect ? x.roundRect(M, y - 12, W - M * 2, sumRows.length * 48 + 24, 18) : x.rect(M, y - 12, W - M * 2, sumRows.length * 48 + 24); x.fill();
+      sumRows.forEach((r, i) => {
+        const bold = r[2] === 3, py = y + 28 + i * 48;
+        put(r[0], M + 28, py, (bold ? 'bold ' : '') + '27px ' + F, INK);
+        put(r[1], W - M - 28, py, 'bold 27px ' + F, r[2] === 1 ? '#0a6b3a' : r[2] === 2 ? '#b3261e' : INK, 'right');
+        if (i === 3) { x.fillStyle = '#d6e3db'; x.fillRect(M + 28, py + 14, W - M * 2 - 56, 2); }
+      });
+      y += sumRows.length * 48 + 56;
+      // ---- investors
+      if (st.investors.length) {
+        section('Investors');
+        const hdr = () => { x.fillStyle = '#e4f2ea'; x.fillRect(M, y - 28, W - M * 2, 46); put('Name', M + 14, y + 4, 'bold 24px ' + F, GREEN); put('In this period', 700, y + 4, 'bold 24px ' + F, GREEN, 'right'); put('Total invested', 960, y + 4, 'bold 24px ' + F, GREEN, 'right'); put('Share', W - M - 14, y + 4, 'bold 24px ' + F, GREEN, 'right'); y += 40; };
+        hdr();
+        st.investors.forEach(i => {
+          need(52); put(fit(i.name, 500), M + 14, y + 8, '26px ' + F, INK); put(i.inPeriod ? money(i.inPeriod) : '-', 700, y + 8, '26px ' + F, INK, 'right'); put(money(i.total), 960, y + 8, 'bold 26px ' + F, INK, 'right'); put(i.pct + '%', W - M - 14, y + 8, '26px ' + F, INK, 'right');
+          x.fillStyle = '#edf2ee'; x.fillRect(M, y + 24, W - M * 2, 1.5); y += 52;
+        });
+        need(52); put('Total', M + 14, y + 8, 'bold 26px ' + F, INK); put(money(st.invested), 700, y + 8, 'bold 26px ' + F, INK, 'right'); put(money(st.totalInvestedToDate), 960, y + 8, 'bold 26px ' + F, INK, 'right'); y += 70;
+      }
+      // ---- heads
+      if (st.heads.length) {
+        section('Where the money went');
+        st.heads.forEach(h => {
+          need(60 + Math.min(h.works.length, 2) * 44);
+          x.fillStyle = '#e4f2ea'; x.fillRect(M, y - 30, W - M * 2, 50);
+          put(fit(h.name, 700), M + 14, y + 4, 'bold 27px ' + F, GREEN); put(money(h.total), W - M - 14, y + 4, 'bold 27px ' + F, GREEN, 'right'); y += 46;
+          h.works.forEach(w => { need(44); put(fit(w.work, 640), M + 40, y + 6, '25px ' + F, INK); put(pl(w.count, 'payment'), 860, y + 6, '22px ' + F, MUT, 'right'); put(money(w.total), W - M - 14, y + 6, '25px ' + F, INK, 'right'); y += 42; });
+          if (h.pocket > 0) { need(40); put('Paid from own pocket: ' + money(h.pocket) + '   ·   From fund: ' + money(h.fund), M + 40, y + 4, 'italic 22px ' + F, MUT); y += 40; }
+          y += 16;
+        });
+        y += 4;
+      }
+      // ---- contracts
+      if (st.specialists.length) {
+        section('Specialists: agreed amount and payment');
+        const hdr = () => { x.fillStyle = '#e4f2ea'; x.fillRect(M, y - 28, W - M * 2, 46); put('Who / work', M + 14, y + 4, 'bold 24px ' + F, GREEN); put('Agreed', 760, y + 4, 'bold 24px ' + F, GREEN, 'right'); put('Paid', 960, y + 4, 'bold 24px ' + F, GREEN, 'right'); put('Due', W - M - 14, y + 4, 'bold 24px ' + F, GREEN, 'right'); y += 40; };
+        hdr();
+        st.specialists.forEach(sp => {
+          need(80); put(fit(sp.who, 560), M + 14, y + 6, 'bold 25px ' + F, INK); put(fit(sp.headName + ': ' + sp.work, 560), M + 14, y + 36, '21px ' + F, MUT);
+          put(money(sp.agreed), 760, y + 6, '25px ' + F, INK, 'right'); put(money(sp.paid), 960, y + 6, '25px ' + F, INK, 'right'); put(sp.due > 0.005 ? money(sp.due) : 'Paid', W - M - 14, y + 6, 'bold 25px ' + F, sp.due > 0.005 ? '#b3261e' : '#0a6b3a', 'right');
+          x.fillStyle = '#edf2ee'; x.fillRect(M, y + 50, W - M * 2, 1.5); y += 76;
+        });
+        y += 20;
+      }
+      // ---- transactions
+      need(200);
+      section('All entries, day by day');
+      const thead = () => {
+        x.fillStyle = '#e4f2ea'; x.fillRect(M, y - 28, W - M * 2, 46);
+        put('Date', M + 14, y + 4, 'bold 23px ' + F, GREEN); put('Details', 250, y + 4, 'bold 23px ' + F, GREEN); put('Money in', 840, y + 4, 'bold 23px ' + F, GREEN, 'right'); put('Money out', 1010, y + 4, 'bold 23px ' + F, GREEN, 'right'); put('Balance', W - M - 14, y + 4, 'bold 23px ' + F, GREEN, 'right'); y += 44;
+      };
+      hdrCb = thead; thead();
+      need(60); put('Opening balance', 250, y + 6, 'italic 24px ' + F, MUT); put(money(st.opening), W - M - 14, y + 6, 'bold 24px ' + F, INK, 'right'); y += 50;
+      st.rows.forEach(r => {
+        x.font = '25px ' + F; const t1 = wrap(r.title, 560, 2); x.font = '21px ' + F; const t2 = wrap(r.sub, 560, 2), h = 20 + t1.length * 32 + t2.length * 27 + 12;
+        need(h);
+        put(fmtDate(r.date), M + 14, y + 6, '23px ' + F, INK);
+        t1.forEach((l, i) => put(l, 250, y + 6 + i * 32, '25px ' + F, INK));
+        t2.forEach((l, i) => put(l, 250, y + 6 + t1.length * 32 + i * 27 - 4, '21px ' + F, MUT));
+        if (r.credit) put(money(r.credit), 840, y + 6, '25px ' + F, '#0a6b3a', 'right');
+        if (r.debit) put(money(r.debit), 1010, y + 6, '25px ' + F, r.pocket ? MUT : '#b3261e', 'right');
+        put(money(r.balance), W - M - 14, y + 6, 'bold 25px ' + F, INK, 'right');
+        x.fillStyle = '#edf2ee'; x.fillRect(M, y + h - 26, W - M * 2, 1.5); y += h;
+      });
+      if (!st.rows.length) { need(50); put('No entries in this period.', 250, y + 6, 'italic 25px ' + F, MUT); y += 50; }
+      need(120);
+      x.fillStyle = '#012313'; x.fillRect(M, y - 6, W - M * 2, 4); y += 40;
+      put('Closing balance (fund)', M + 14, y, 'bold 30px ' + F, INK); put(money(st.closing), W - M - 14, y, 'bold 34px ' + F, GREEN, 'right'); y += 44;
+      put('Amounts paid from the owner\'s own pocket are listed but do not reduce the fund balance.', M + 14, y, 'italic 21px ' + F, MUT);
+      // ---- footers
+      pages.forEach((p, i) => { const k = p.getContext('2d'); k.fillStyle = MUT; k.font = '21px ' + F; k.textAlign = 'left'; k.fillText((s.name || '') + ' · Investment & Expense Statement', M, H - 50); k.textAlign = 'right'; k.fillText('Page ' + (i + 1) + ' of ' + pages.length, W - M, H - 50); });
+      return pages;
+    });
+  }
+  const b64ToBytes = b => { const bin = atob(b), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+  const bytesToB64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+  async function statementPdf(from, to) {
+    const st = D.fundStatement(from, to), pages = await statementPages(st);
+    const jp = pages.map(p => ({ w: p.width, h: p.height, jpeg: b64ToBytes(p.toDataURL('image/jpeg', 0.92).split(',')[1]) }));
+    return { bytes: window.makePdf(jp, 'Statement ' + from + ' to ' + to), pages: pages.length, name: 'ECOLaver-Statement-' + from + '-to-' + to + '.pdf' };
+  }
+  const DL_DIR = 'ECOLaver Business Management System/Downloads';
+  async function saveBinaryToFolder(name, b64) {
+    const fs = plug('Filesystem'), sa = plug('StorageAccess'), path = DL_DIR + '/' + name;
+    if (sa) {
+      let g = true; try { g = (await sa.check()).granted; } catch (e) { }
+      if (!g) {
+        const ok = await confirmSheet({ title: 'Allow folder access', text: 'To save the PDF in your "ECOLaver Business Management System" folder, Android needs your permission.\n\nTap Allow, then switch ON "Allow access to manage all files" for ECOLaver. Then come back and tap Download PDF again.', ok: 'Allow' });
+        if (ok) { try { await sa.open(); } catch (e) { toast('Open phone Settings > Apps > ECOLaver > Permissions and allow all files access', 1); } }
+        return null;
+      }
+    }
+    try { await fs.writeFile({ path, data: b64, directory: 'EXTERNAL_STORAGE', recursive: true }); return path; }
+    catch (e1) { try { await fs.writeFile({ path, data: b64, directory: 'DOCUMENTS', recursive: true }); return 'Documents/' + path; } catch (e2) { return ''; } }
+  }
+
+  /* ----- forms (sheets) ----- */
+  function invSheet(id) {
+    const i = id ? D.find('investors', id) : null;
+    openSheet('<h2>' + (i ? 'Edit investor' : 'New investor') + '</h2>' + fld('iv-name', 'Name', i ? i.name : '', 'text') + fld('iv-phone', 'Phone (optional)', i ? i.phone : '', 'text', '', 'type="tel" inputmode="tel"') + fld('iv-note', 'Note (optional)', i ? i.note : '', 'text') +
+      (i ? '' : fld('iv-amt', 'Money put in now (₹, optional)', '', 'number', '0')) +
+      '<button class="btn primary block" data-act="invSave" data-id="' + (id || '') + '">Save</button>' + (i ? '<button class="btn danger block" style="margin-top:8px" data-act="invDel" data-id="' + id + '">Delete investor</button>' : ''));
+  }
+  function depSheet(investorId, depId) {
+    const d = depId ? D.find('deposits', depId) : null, invs = D.state.investors;
+    if (!invs.length) { toast('Add an investor first', 1); return; }
+    const cur = d ? d.investorId : (investorId || invs[0].id);
+    openSheet('<h2>' + (d ? 'Change investment' : 'Add money') + '</h2>' + sel('dp-inv', 'Investor', invs.map(i => [i.id, i.name]), cur) + fld('dp-amt', 'Amount (₹)', d ? d.amount : '', 'number', '0') + fld('dp-date', 'Date', d ? d.date : D.today(), 'date') + sel('dp-m', 'How was it paid?', METHODS.map(m => [m, m]), d ? d.method : 'Cash') + fld('dp-note', 'Note (optional)', d ? d.note : '', 'text') +
+      '<button class="btn primary block" data-act="depSave" data-id="' + (depId || '') + '">Save</button>' + (d ? '<button class="btn danger block" style="margin-top:8px" data-act="depDel" data-id="' + depId + '">Delete this entry</button>' : ''));
+  }
+  function spendSheet(headId, id) {
+    const s = id ? D.find('spends', id) : null, hs = D.state.heads, t = D.fundSummary();
+    const whos = Array.from(new Set(D.state.spends.map(x => x.who).filter(Boolean)));
+    openSheet('<h2>' + (s ? 'Change expense' : 'New expense') + '</h2>' + sel('sp-head', 'Head', hs.map(h => [h.id, h.name]), s ? s.headId : (headId || hs[0].id)) +
+      fld('sp-work', 'Work / what for', s ? s.work : '', 'text', 'e.g. Electric work, Food', 'list="sp-wl"') + '<datalist id="sp-wl">' + WORK_HINTS.concat(Array.from(new Set(D.state.spends.map(x => x.work)))).map(w => '<option value="' + esc(w) + '">').join('') + '</datalist>' +
+      fld('sp-who', 'Paid to (person / specialist)', s ? s.who : '', 'text', 'Name', 'list="sp-wh"') + '<datalist id="sp-wh">' + whos.map(w => '<option value="' + esc(w) + '">').join('') + '</datalist>' +
+      '<div class="two">' + fld('sp-amt', 'Amount (₹)', s ? s.amount : '', 'number', '0') + fld('sp-date', 'Date', s ? s.date : D.today(), 'date') + '</div>' +
+      '<div class="two">' + sel('sp-src', 'Paid from', [['fund', "Investors' fund"], ['pocket', 'My own pocket']], s ? s.source : 'fund') + sel('sp-m', 'How?', METHODS.map(m => [m, m]), s ? s.method : 'Cash') + '</div>' +
+      '<div class="hint" style="margin:-6px 0 10px">Money in hand now: ' + money(t.balance) + '. "Own pocket" is counted as expense but does not reduce the fund.</div>' +
+      fld('sp-agr', 'Agreed total for this work (₹, optional)', s && s.agreed ? s.agreed : '', 'number', 'Fix price with this person') +
+      fld('sp-note', 'Note (optional)', s ? s.note : '', 'text') +
+      '<button class="btn primary block" data-act="spSave" data-id="' + (id || '') + '">Save</button>' + (s ? '<button class="btn danger block" style="margin-top:8px" data-act="spDel" data-id="' + id + '">Delete this entry</button>' : ''));
+  }
+  function headSheet(id) {
+    const h = id ? D.find('heads', id) : null;
+    openSheet('<h2>' + (h ? 'Rename head' : 'New head') + '</h2>' + fld('hd-name', 'Head name', h ? h.name : '', 'text', 'e.g. Rent, Machines') + '<button class="btn primary block" data-act="hdSave" data-id="' + (id || '') + '">Save</button>');
+  }
 
   /* ---------- FAMILY MEMBERSHIP CARD ---------- */
   SCREENS.cards = () => {
@@ -1280,6 +1518,68 @@
       if (!ok) return; D.resetAll(!full); S.bill = S.buy = S.order = S.pack = null; toast('All data deleted'); tab('home');
     }
   };
+
+  const V = s => { const e = $(s); return e ? e.value : ''; };
+  Object.assign(ACT, {
+    invNew() { invSheet(); }, invEdit(el) { invSheet(el.dataset.id); },
+    invSave(el) {
+      try {
+        const id = el.dataset.id, d = { name: V('#iv-name'), phone: V('#iv-phone'), note: V('#iv-note') };
+        if (id) D.updateInvestor(id, d); else { const i = D.addInvestor(d), a = +V('#iv-amt'); if (a > 0) D.addDeposit({ investorId: i.id, amount: a, date: D.today(), method: 'Cash', note: '' }); }
+        closeSheet(); toast('Saved'); draw(true);
+      } catch (e) { toast(e.message, 1); }
+    },
+    async invDel(el) {
+      const ok = await confirmSheet({ title: 'Delete investor?', text: 'All money entries of this investor will be deleted too. Total invested will go down.', ok: 'Delete', danger: true });
+      if (!ok) return; D.removeInvestor(el.dataset.id); toast('Deleted'); if (!goBack()) draw(true);
+    },
+    depNew(el) { depSheet(el && el.dataset ? el.dataset.id : ''); }, depEdit(el) { depSheet('', el.dataset.id); },
+    depSave(el) {
+      try { const d = { investorId: V('#dp-inv'), amount: V('#dp-amt'), date: V('#dp-date'), method: V('#dp-m'), note: V('#dp-note') }; if (el.dataset.id) D.updateDeposit(el.dataset.id, d); else D.addDeposit(d); closeSheet(); toast('Saved'); draw(true); } catch (e) { toast(e.message, 1); }
+    },
+    async depDel(el) { const ok = await confirmSheet({ title: 'Delete this entry?', text: 'Total invested will go down by this amount.', ok: 'Delete', danger: true }); if (!ok) return; D.deleteDeposit(el.dataset.id); toast('Deleted'); draw(true); },
+    headNew() { headSheet(); }, headEdit(el) { headSheet(el.dataset.id); },
+    hdSave(el) { try { if (el.dataset.id) D.renameHead(el.dataset.id, V('#hd-name')); else D.addHead(V('#hd-name')); closeSheet(); toast('Saved'); draw(true); } catch (e) { toast(e.message, 1); } },
+    async headDel(el) { const ok = await confirmSheet({ title: 'Delete this head?', text: 'It has no entries, so nothing is lost.', ok: 'Delete', danger: true }); if (!ok) return; try { D.removeHead(el.dataset.id); toast('Deleted'); if (!goBack()) draw(true); } catch (e) { toast(e.message, 1); } },
+    spendNew(el) { spendSheet(el && el.dataset ? el.dataset.id : ''); }, spendEdit(el) { spendSheet('', el.dataset.id); },
+    async spSave(el) {
+      try {
+        const src = V('#sp-src'), amt = +V('#sp-amt'), id = el.dataset.id;
+        const d = { headId: V('#sp-head'), work: V('#sp-work'), who: V('#sp-who'), amount: amt, date: V('#sp-date'), method: V('#sp-m'), source: src, agreed: V('#sp-agr'), note: V('#sp-note') };
+        if (src === 'fund') {
+          const old = id ? D.find('spends', id) : null, bal = D.fundSummary().balance + (old && old.source === 'fund' ? old.amount : 0);
+          if (amt > bal + 0.005) { const ok = await confirmSheet({ title: 'Not enough money in fund', text: 'Money in hand is ' + money(bal) + ' but this expense is ' + money(amt) + '. Save anyway? The balance will show minus.', ok: 'Save anyway' }); if (!ok) return; }
+        }
+        if (id) D.updateSpend(id, d); else D.addSpend(d);
+        closeSheet(); toast('Saved'); draw(true);
+      } catch (e) { toast(e.message, 1); }
+    },
+    async spDel(el) { const ok = await confirmSheet({ title: 'Delete this entry?', text: 'The expense will be removed from the totals.', ok: 'Delete', danger: true }); if (!ok) return; D.deleteSpend(el.dataset.id); toast('Deleted'); draw(true); },
+    stmtShow() { const f = V('#st-from'), t = V('#st-to'); if (f) S.st.from = f; if (t) S.st.to = t; draw(true); },
+    stmtQuick(el) {
+      const v = el.dataset.v, td = D.today();
+      if (v === 'all') S.st = { from: firstDate(), to: td };
+      else if (v === 'month') S.st = { from: monthStart(td), to: td };
+      else { const y = +td.slice(0, 4), m = +td.slice(5, 7), py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1, last = new Date(py, pm, 0).getDate(), p2 = n => String(n).padStart(2, '0'); S.st = { from: py + '-' + p2(pm) + '-01', to: py + '-' + p2(pm) + '-' + p2(last) }; }
+      draw(true);
+    },
+    async stmtPdf(el) {
+      const f = V('#st-from') || S.st.from, t = V('#st-to') || S.st.to; S.st = { from: f, to: t };
+      if (f > t) { toast('"From" date is after "To" date', 1); return; }
+      if (S.busy) return; S.busy = 1; toast('Making PDF...');
+      try {
+        const r = await statementPdf(f, t), b64 = bytesToB64(r.bytes);
+        if (el.dataset.m === 'share') { await shareFile(r.name, b64, false, 'Statement'); }
+        else if (NATIVE) {
+          const p = await saveBinaryToFolder(r.name, b64);
+          if (p) toast('Saved: ' + p); else if (p === '') { await shareFile(r.name, b64, false, 'Statement'); }
+        } else {
+          const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([r.bytes], { type: 'application/pdf' })); a.download = r.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000); toast('PDF ready (' + r.pages + ' pages)');
+        }
+      } catch (e) { toast('Could not make PDF: ' + e.message, 1); }
+      S.busy = 0;
+    }
+  });
   document.addEventListener('click', e => {
     const el = e.target.closest('[data-act]');
     if (!el || !ACT[el.dataset.act]) return;
